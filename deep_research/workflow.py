@@ -78,6 +78,20 @@ def prepare(project: Project):
         return run_id
 
 
+def prompt_pack(project, run_id, source_id) -> str:
+    """Everything a chat AI (Claude web, ChatGPT…) needs for one document, as plain text:
+    the instructions, the request id, the items, and the passages with their ids. The reply
+    JSON goes back through import_extraction, so nothing bypasses the checks."""
+    request = read_json(project.run_dir(run_id) / "requests" / (source_id + ".json"))
+    fields = "\n".join(f"- {f['id']} · {f['name']}: {f['instruction']}" for f in request["config"]["fields"])
+    passages = "\n\n".join(f"[passage_id: {p['id']}] (PDF {p['page']}쪽)\n{p['text']}" for p in request["passages"])
+    return (f"{request['instructions']}\n"
+            f"request_id: {request['request_id']}\nsource_id: {source_id}\n문헌: {request['source']['title']}\n"
+            f"조사 질문: {request['config']['plan']['question']}\n\n추출 항목(field_id · 이름: 지침):\n{fields}\n\n"
+            f"아래 원문 구간만 사용하세요. quotes의 passage_id는 아래 대괄호 안의 값을 그대로 쓰고, quote는 그 구간에 실제로 있는 연속 문구여야 합니다.\n"
+            f"응답은 JSON 객체 하나만 출력하세요(설명 금지).\n\n===== 원문 =====\n{passages}\n")
+
+
 def manifest(project, run_id):
     return read_json(project.run_dir(run_id) / "run.json")
 

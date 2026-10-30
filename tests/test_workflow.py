@@ -349,3 +349,34 @@ def test_example_screening_keeps_human_decisions(tmp_path):
     # Explicit reset is still possible.
     apply_example_screening(p, keep_human_decisions=False)
     assert p.source(sid)["decision"] == "include"
+
+
+def test_reference_parsers_and_citation(project):
+    from deep_research.exports import bibliography, citation
+    from deep_research.providers import parse_bibtex, parse_ris
+    ris = "TY  - JOUR\nTI  - A test paper\nAU  - Kim, A\nAU  - Lee, B\nPY  - 2024\nJO  - Journal X\nDO  - 10.1000/xyz\nER  - \n"
+    assert parse_ris(ris)[0]["doi"] == "10.1000/xyz" and parse_ris(ris)[0]["authors"] == ["Kim, A", "Lee, B"]
+    bib = "@article{k, title={Another {Test}}, author={Kim, A and Lee, B}, year={2023}, journal={J}, doi={10.1/ABC}}"
+    item = parse_bibtex(bib)[0]
+    assert item["title"] == "Another Test" and item["doi"] == "10.1/abc" and item["year"] == 2023
+    sid = project.catalog()[0]["id"]
+    project.set_bibliography(sid, ["Kim, A", "Lee, B", "Park, C"], 2024, "Journal X")
+    source = project.source(sid)
+    line = citation(source)
+    assert line.startswith("Kim, A 외, 2024. Test study.") and "https://doi.org/10.1234/test" in line and "Journal X" in line
+    run = extracted(project)
+    row = w.evidence(project, run)[0]
+    assert "PDF 1쪽" in citation(source, row) and "원문:" in citation(source, row)
+    assert bibliography(project, run).startswith("1. Kim, A 외, 2024. Test study.")
+    assert "## 참고문헌" in report(project, run)
+
+
+def test_collection_keeps_metadata_only_candidates(project):
+    from deep_research.providers import collect
+    record = collect(project, {"title": "No PDF here", "authors": ["Z"], "year": 2020, "venue": "", "doi": "10.9/none",
+                               "url": "", "pdf_url": "", "oa": False, "provider": "test"})
+    assert record["status"] == "pdf_missing" and record["source_id"] is None
+    assert project.collection()[0]["doi"] == "10.9/none"
+    # Same DOI again replaces the earlier row instead of duplicating it.
+    collect(project, {"title": "No PDF here v2", "authors": [], "year": 2021, "venue": "", "doi": "10.9/none", "url": "", "pdf_url": "", "oa": False, "provider": "test"})
+    assert len(project.collection()) == 1 and project.collection()[0]["title"] == "No PDF here v2"

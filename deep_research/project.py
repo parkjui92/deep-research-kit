@@ -272,6 +272,47 @@ class Project:
         folder = self.root / "runs"
         return sorted([p.name for p in folder.iterdir() if p.is_dir() and (p / "run.json").exists()], reverse=True) if folder.exists() else []
 
+    def reviewer(self) -> str:
+        path = self.root / ".reviewer"
+        return path.read_text(encoding="utf-8").strip() if path.exists() else ""  # noqa: E501
+
+    def remember_reviewer(self, name: str):
+        try:
+            atomic_text(self.root / ".reviewer", name.strip())
+        except OSError:
+            pass
+
+    def with_bib(self, source: dict) -> dict:
+        """A run keeps a frozen copy of each source; bibliography may have been filled later."""
+        try:
+            live = self.source(source["id"])
+        except ValueError:
+            return source
+        return {**source, "bib": live.get("bib") or source.get("bib") or {}}
+
+    def collection(self):
+        path = self.root / "collection.json"
+        return read_json(path) if path.exists() else []
+
+    def remember_candidate(self, record):
+        """Search candidates the person chose to keep, with or without a PDF (the PRISMA trail)."""
+        with self.lock:
+            items = self.collection()
+            key = record.get("doi") or record.get("title", "").strip().lower()
+            items = [i for i in items if (i.get("doi") or i.get("title", "").strip().lower()) != key]
+            items.append({**record, "at": now()})
+            write_json(self.root / "collection.json", items)
+
+    def set_bibliography(self, source_id, authors, year, venue):
+        """Author·year·venue for citations. Stored on the catalog entry; never required."""
+        with self.lock:
+            catalog = self.catalog()
+            source = next((s for s in catalog if s["id"] == source_id), None)
+            if source is None:
+                raise ValueError("자료 ID를 찾을 수 없습니다.")
+            source["bib"] = {"authors": [str(a) for a in authors or []], "year": int(year) if str(year or "").isdigit() else year, "venue": venue or ""}
+            write_json(self.root / "catalog.json", catalog)
+
     def log_search(self, record):
         with self.lock:
             records = read_json(self.root / "search-log.json")

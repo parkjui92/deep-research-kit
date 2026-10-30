@@ -105,7 +105,10 @@ def todo(project, stage: str):
     included = sum(s["decision"] == "include" for s in sources)
     runs = project.runs()
     answered = [r for r in runs if any((project.run_dir(r) / "responses").glob("*.json"))]
-    kept = sum(len(flow.accepted(project, r)) for r in answered)
+    # Count the run the person is looking at (4·5단계 selectors), not every run — the two numbers
+    # on one screen must agree.
+    shown = st.session_state.get("review_run") if stage == STAGES[3] else st.session_state.get("synthesis_run") if stage == STAGES[4] else None
+    kept = len(flow.accepted(project, shown)) if shown in answered else sum(len(flow.accepted(project, r)) for r in answered)
     example = (project.root / "example-manifest.json").exists()
     i = STAGES.index(stage)
     if i == 0:
@@ -142,22 +145,26 @@ def todo(project, stage: str):
                     go_to(STAGES[i + 1])
 
 
-def app_header(project, title: str, stage: str):
+def app_header(project, title: str, stage: str | None):
     """Product name + one line on what the tool does, the project as a chip, and a horizontal stepper
     (Covidence/Elicit onboarding pattern; GOV.UK task-list states: done ✓ · current ● · todo ○)."""
-    status = stage_status(project, stage)
-    steps = []
-    for s in STAGES:
-        state = status[s]
-        number, name = s.split(" · ", 1)
-        mark = "✓" if state == "done" else number
-        steps.append(f'<div class="drk-step {state}"><span class="n">{mark}</span><span class="t">{name}</span></div>')
+    stepper = ""
+    if stage is not None:
+        status = stage_status(project, stage)
+        steps = []
+        for s in STAGES:
+            state = status[s]
+            number, name = s.split(" · ", 1)
+            mark = "✓" if state == "done" else number
+            steps.append(f'<div class="drk-step {state}"><span class="n">{mark}</span><span class="t">{name}</span></div>')
+        stepper = f'<div class="drk-stepper">{"".join(steps)}</div>'
+    compact = " compact" if stage is None else ""
     st.markdown(
-        '<div class="drk-app">'
+        f'<div class="drk-app{compact}">'
         '<div class="drk-app-top"><div><div class="drk-wordmark">Deep Research Kit</div>'
-        '<div class="drk-tagline">AI가 PDF에서 뽑은 값을, 사람이 원문으로 확인해 근거로 남기는 문헌조사 도구</div></div>'
+        '<div class="drk-tagline">여러 논문을 내 질문에 맞는 비교표로 · AI가 뽑은 값을 원문으로 확인해 근거로 남깁니다</div></div>'
         f'<div class="drk-project"><span class="k">프로젝트</span><span class="v">{title}</span><code>{project.root.name}</code></div></div>'
-        f'<div class="drk-stepper">{"".join(steps)}</div></div>', unsafe_allow_html=True)
+        f'{stepper}</div>', unsafe_allow_html=True)
 
 
 def header(title: str, lead: str, metrics: list[tuple] = ()):

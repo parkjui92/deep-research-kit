@@ -10,18 +10,18 @@ PAPERS = [
     {"key": "metr-2025-v2", "title": "Measuring the Impact of Early-2025 AI on Experienced Open-Source Developer Productivity",
      "authors": "Joel Becker, Nate Rush, Elizabeth Barnes, David Rein", "year": 2025,
      "doi": "10.48550/arXiv.2507.09089", "url": "https://arxiv.org/abs/2507.09089v2",
-     "pdf": "https://arxiv.org/pdf/2507.09089v2", "license": "CC BY 4.0",
+     "pdf": "https://arxiv.org/pdf/2507.09089v2", "license": "CC BY 4.0", "venue": "arXiv",
      "license_url": "https://creativecommons.org/licenses/by/4.0/"},
     {"key": "ideation-2025-v1", "title": "The Ideation-Execution Gap: Execution Outcomes of LLM-Generated versus Human Research Ideas",
      "authors": "Chenglei Si, Tatsunori Hashimoto, Diyi Yang", "year": 2025,
      "doi": "10.48550/arXiv.2506.20803", "url": "https://arxiv.org/abs/2506.20803v1",
-     "pdf": "https://arxiv.org/pdf/2506.20803v1", "license": "CC BY 4.0",
+     "pdf": "https://arxiv.org/pdf/2506.20803v1", "license": "CC BY 4.0", "venue": "arXiv",
      "license_url": "https://creativecommons.org/licenses/by/4.0/"},
     {"key": "reproduction-2026-vor", "title": "AI-assisted teams outperform AI-led teams but not human-only teams in assessing research reproducibility in quantitative social science",
      "authors": "Abel Brodeur et al.", "year": 2026,
      "doi": "10.1073/pnas.2524747123", "url": "https://discovery.ucl.ac.uk/id/eprint/10230346/",
      "pdf": "https://eprints.whiterose.ac.uk/id/eprint/241548/1/brodeur-et-al-2026-ai-assisted-teams-outperform-ai-led-teams-but-not-human-only-teams-in-assessing-research-1.pdf",
-     "mirror": "https://discovery.ucl.ac.uk/id/eprint/10230346/1/BRODEU~1.PDF",
+     "mirror": "https://discovery.ucl.ac.uk/id/eprint/10230346/1/BRODEU~1.PDF", "venue": "Proceedings of the National Academy of Sciences",
      "license": "CC BY-NC-ND 4.0", "license_url": "https://creativecommons.org/licenses/by-nc-nd/4.0/"},
 ]
 
@@ -57,6 +57,10 @@ def apply_example_screening(project, keep_human_decisions=True):
     the example text) is never overwritten unless `keep_human_decisions=False`. Returns the located
     quotes per paper so a caller can check that every anchor was found."""
     manifest = {m["sha256"]: m for m in read_json(project.root / "example-manifest.json")}
+    for source in project.catalog():  # older example projects: fill author·year·venue once
+        paper = manifest.get(source["sha256"])
+        if paper and paper.get("authors") and not source.get("bib"):
+            project.set_bibliography(source["id"], [a.strip() for a in paper["authors"].split(",")], paper["year"], paper.get("venue", ""))
     example_reasons = {spec["reason"] for spec in SCREENING.values()}
     located = {}
     for source in project.catalog():
@@ -98,6 +102,7 @@ def create_example(target, cache=None, title=""):
                 raise ValueError(f"{paper['key']} 다운로드 실패. 앞서 등록한 자료는 보존됩니다. 공식 PDF를 example-cache/{paper['key']}.pdf에 저장하고 다시 실행하세요.") from None
             path.write_bytes(downloaded)
         source_id = project.add_pdf(path.read_bytes(), path.name, paper["title"], paper["doi"], paper["url"])
+        project.set_bibliography(source_id, [a.strip() for a in paper["authors"].split(",")], paper["year"], paper.get("venue", ""))
         manifest.append({**paper, "source_id": source_id, "sha256": project.source(source_id)["sha256"]})
     write_json(target / "example-manifest.json", manifest)
     return project

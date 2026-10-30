@@ -243,7 +243,9 @@ def extraction_page(project):
                            "이미 저장한 선별 판단·이유·근거 구절은 바꾸지 않고, 아직 판단하지 않은 문헌만 포함으로 둡니다.")
                 if not _is_default_design(project):
                     st.warning("조사 설계가 기본값과 달라 예시 응답을 쓸 수 없습니다. 바꾼 기준은 Claude Code로 새로 추출해야 합니다.")
-                    if st.button("기본 설계로 되돌리고 예시 불러오기", width="stretch"):
+                    agree = st.checkbox(f"내가 고친 설계(질문 「{ui.short(project.config()['plan']['question'], 40)}」·기준·항목·종합 지침)가 **기본값으로 바뀌고 되돌릴 수 없음**을 이해했습니다.",
+                                        key="reset-design-agree")
+                    if st.button("기본 설계로 되돌리고 예시 불러오기", width="stretch", disabled=not agree):
                         project.save_config(dict(DEFAULT_PLAN), [dict(f) for f in DEFAULT_FIELDS], DEFAULT_RULES)
                         _load_example(project)
                 elif st.button("수업용 예시 응답 불러오기", width="stretch"):
@@ -416,7 +418,7 @@ def review_page(project):
                                   format_func=REVIEW_CHOICES.get, horizontal=True,
                                   help="채택 = 원문과 맞아 그대로 씀 · 수정 후 채택 = 값을 고쳐 씀(원래 값은 보존) · 보류 = 더 확인 필요 · 제외 = 원문과 다르거나 쓸 수 없음. "
                                        "2단계의 포함·제외는 논문을 쓸지였고, 여기서는 값 하나를 쓸지입니다.")
-                checked = st.checkbox("필수(채택 때) · 오른쪽 원문의 앞뒤 문맥을 읽고 추출값을 뒷받침하는지 판단했습니다.",
+                checked = st.checkbox("필수(채택·수정 후 채택 때) · 오른쪽 원문의 앞뒤 문맥을 읽고 추출값을 뒷받침하는지 판단했습니다.",
                                       help="채택·수정 후 채택은 이 표시가 있어야 저장됩니다. 보류·제외는 없어도 됩니다.")
                 value = st.text_area("수정 후 채택할 값", row["review"].get("edited_value") or row["value"] or "",
                                      help="‘수정 후 채택’일 때만 저장됩니다. 원래 AI 추출값은 그대로 보존됩니다.")

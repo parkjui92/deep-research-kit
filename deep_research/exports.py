@@ -32,6 +32,39 @@ def local(iso):
         return str(iso)[:16]
 
 
+def _authors_text(bib):
+    names = [a for a in (bib or {}).get("authors", []) if a]
+    if not names:
+        return ""
+    first = names[0]
+    return first if len(names) == 1 else (f"{first} 외" if len(names) > 2 else f"{names[0]}·{names[1]}")
+
+
+def citation(source, row=None):
+    """One line a researcher can paste under a sentence: author(year). title. venue. DOI · PDF page · quote."""
+    bib = source.get("bib") or {}
+    head = ", ".join(x for x in (_authors_text(bib), str(bib.get("year") or "")) if x)
+    parts = [f"{head}. " if head else "", source["title"].rstrip(".") + ".", f" {bib['venue']}." if bib.get("venue") else "",
+             f" https://doi.org/{source['doi']}" if source.get("doi") else (f" {source['url']}" if source.get("url") else "")]
+    line = "".join(parts).strip()
+    if row:
+        pages = sorted({loc["page"] for loc in row["locators"] if loc.get("page")})
+        if pages:
+            line += f" (PDF {', '.join(map(str, pages))}쪽)"
+        quote = next((loc["quote"] for loc in row["locators"]), "")
+        if quote:
+            line += "\n원문: \"" + quote + "\""
+        line += "\n추출값: " + str(display_value(row) or "읽은 범위에서 찾지 못함")
+    return line
+
+
+def bibliography(project, run_id):
+    run = manifest(project, run_id)
+    sources = [project.with_bib(s) for s in run["sources"]]
+    lines = [citation(s) for s in sorted(sources, key=lambda s: (_authors_text(s.get("bib")), s["title"]))]
+    return "\n".join(f"{i + 1}. {line}" for i, line in enumerate(lines)) + "\n"
+
+
 def display_value(row):
     return row["review"].get("edited_value") if row["review"]["status"] == "edit" else row["value"]
 
@@ -66,7 +99,7 @@ def bundle_data(project, run_id):
 def report(project, run_id, local_pdf_links=False):
     data = bundle_data(project, run_id)
     run, rows, synthesis = data["run"], data["evidence"], data["synthesis"]
-    sources = {s["id"]: s for s in run["sources"]}
+    sources = {s["id"]: project.with_bib(s) for s in run["sources"]}
     fields = {f["id"]: f["name"] for f in run["config"]["fields"]}
     approved = accepted(project, run_id)
     title = read_json(project.root / "project.json").get("title", "")
@@ -127,10 +160,10 @@ def report(project, run_id, local_pdf_links=False):
                      if quote["status"] in {"exact_normalized", "multiple"} else "원문에서 찾지 못함")
             tag = {"inclusion": "포함 기준", "exclusion": "제외 기준"}.get(quote.get("criterion", ""), "기준 미표시")
             lines += [f"  - [{tag} · {where} · {word(quote['status'])}] {quote['quote'].replace(chr(10), ' ')}"]
-    lines += ["", "## 자료 목록", ""]
-    for source in sources.values():
-        link = source["url"] or ("https://doi.org/" + source["doi"] if source["doi"] else "원문은 프로젝트에 보관")
-        lines += [f"- {source['title']} — {link}", f"  - ID: `{source['id']}` · SHA-256: `{source['sha256']}`"]
+    lines += ["", "## 참고문헌", ""]
+    for i, source in enumerate(sorted(sources.values(), key=lambda s: (_authors_text(s.get("bib")), s["title"])), 1):
+        lines.append(f"{i}. {citation(source)}  ")
+        lines.append(f"   문헌 ID `{source['id']}` · SHA-256 `{source['sha256'][:16]}…`")
     lines += ["", "## 위키로 이어가기", "",
               "이 문서와 research.json을 함께 가져오세요. 근거 ID·문헌 ID·원문 위치·검토 상태를 보존하세요.",
               "미검토 항목을 확정된 사실로 옮기지 마세요. 같은 연구의 보고서를 중복 집계하지 마세요.", ""]
