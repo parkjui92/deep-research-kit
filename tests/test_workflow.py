@@ -256,6 +256,29 @@ def test_text_files_are_read_and_written_as_utf8():
     import re
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
-    for path in [root / "app.py", *(root / "deep_research").glob("*.py")]:
+    for path in [root / "app.py", *(root / "deep_research").glob("*.py"), *(root / "ui").glob("*.py")]:
         source = path.read_text(encoding="utf-8")
         assert not re.search(r"\.(read|write)_text\((?![^)]*encoding)", source), path.name
+
+
+def test_curly_quotes_and_dashes_fold_to_ascii(tmp_path):
+    from deep_research.documents import index_pdf
+    buf = io.BytesIO()
+    pdf = canvas.Canvas(buf)
+    pdf.drawString(50, 750, "AI’s impact in the February–June 2025 “field” trial — measured.")
+    pdf.save()
+    path = tmp_path / "typography.pdf"
+    path.write_bytes(buf.getvalue())
+    index = index_pdf(path, "typography")
+    pid = index["passages"][0]["id"]
+    assert normalize("’“”–—") == "'\"\"--"
+    printed = locate_quote(index, pid, "AI’s impact in the February–June 2025 “field” trial")
+    ascii_quote = locate_quote(index, pid, "AI's impact in the February-June 2025 \"field\" trial - measured")
+    assert printed["status"] == ascii_quote["status"] == "exact_normalized"
+    assert normalize("한국어 ‘따옴표’") == "한국어'따옴표'"
+
+
+def test_blank_field_id_gets_korean_message():
+    with pytest.raises(ValueError, match="id"):
+        Project.validate_config({"question": "q", "max_documents": 3},
+                                [{"id": None, "name": "x", "instruction": "y"}])

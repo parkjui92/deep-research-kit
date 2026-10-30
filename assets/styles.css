@@ -1,0 +1,23 @@
+/* Small adjustments on top of .streamlit/config.toml. Tokens live in docs/DESIGN.md. */
+h1, h2, h3 { letter-spacing: -0.02em; }
+h1 { font-size: 1.75rem !important; margin-bottom: 0.25rem !important; }
+h2 { font-size: 1.3rem !important; }
+h3 { font-size: 1.05rem !important; }
+
+/* Sidebar: product name block and compact step list */
+[data-testid="stSidebar"] .drk-brand { font-weight: 700; letter-spacing: 0.06em; font-size: 0.8rem; color: #1F5C4C; }
+[data-testid="stSidebar"] .drk-brand-sub { color: #5B6660; font-size: 0.85rem; margin-top: -0.2rem; }
+[data-testid="stSidebar"] [data-testid="stRadio"] label { padding: 0.15rem 0; }
+
+/* Lead line under each stage title */
+.drk-lead { color: #5B6660; font-size: 0.98rem; margin: -0.25rem 0 0.75rem 0; }
+
+/* Evidence value boxes */
+.drk-value { font-size: 1.05rem; line-height: 1.6; }
+.drk-quote { border-left: 3px solid #D98B10; padding: 0.35rem 0.75rem; margin: 0.4rem 0; color: #1C2A24; background: #FFF8E8; border-radius: 0 6px 6px 0; }
+.drk-meta { color: #5B6660; font-size: 0.85rem; }
+
+/* Code blocks hold IDs and paths; keep them calm */
+code { word-break: break-word; }
+[data-testid="stCaptionContainer"] { color: #5B6660; }
+[data-testid="stMetricValue"] { font-size: 1.6rem !important; }

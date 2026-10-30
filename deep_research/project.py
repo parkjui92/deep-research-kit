@@ -110,6 +110,8 @@ class Project:
             raise ValueError("문헌당 읽을 쪽수는 0(전체)~1000의 정수여야 합니다.")
         ids = set()
         for field in fields:
+            if not isinstance(field, dict) or not isinstance(field.get("id"), str) or not field["id"].strip():
+                raise ValueError("추출 항목마다 id(영문·숫자·하이픈)를 채우세요. 빈 줄은 지우세요.")
             safe_id(field["id"])
             if field["id"] in ids or not field.get("name") or not field.get("instruction"):
                 raise ValueError("항목 ID는 고유해야 하며 이름·추출 지침이 필요합니다.")

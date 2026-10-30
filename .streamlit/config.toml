@@ -1,14 +1,46 @@
 [theme]
 base = "light"
-primaryColor = "#255b4c"
-backgroundColor = "#f8f7f3"
-secondaryBackgroundColor = "#eeeee7"
-textColor = "#1f3028"
-font = "sans serif"
+primaryColor = "#1F5C4C"
+backgroundColor = "#FAF9F6"
+secondaryBackgroundColor = "#F1F0EA"
+textColor = "#1C2A24"
+linkColor = "#1F5C4C"
+borderColor = "#D9D7CE"
+dataframeBorderColor = "#D9D7CE"
+dataframeHeaderBackgroundColor = "#F1F0EA"
+showWidgetBorder = true
+showSidebarBorder = true
+baseRadius = "6px"
+buttonRadius = "6px"
+baseFontSize = 16
+font = "Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif"
+headingFont = "Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif"
+headingFontWeights = [700, 700, 700, 600, 600, 600]
+greenColor = "#1E7A3E"
+orangeColor = "#A86300"
+blueColor = "#1858B8"
+redColor = "#C2321B"
+grayColor = "#6B7570"
+
+# Pretendard (SIL OFL 1.1), Korean + Latin subset bundled in static/fonts so the
+# classroom looks the same offline. Falls back to the system Korean font.
+[[theme.fontFaces]]
+family = "Pretendard"
+url = "app/static/fonts/Pretendard-Regular.woff2"
+weight = 400
+
+[[theme.fontFaces]]
+family = "Pretendard"
+url = "app/static/fonts/Pretendard-Bold.woff2"
+weight = 700
+
+[theme.sidebar]
+backgroundColor = "#F1F0EA"
 
 [server]
 maxUploadSize = 100
 address = "127.0.0.1"
+enableStaticServing = true
 
 [browser]
 gatherUsageStats = false

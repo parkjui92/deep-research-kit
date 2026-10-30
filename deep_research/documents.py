@@ -17,9 +17,19 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+# Typographic variants a model commonly transcribes as ASCII. Folding them keeps
+# the match on the printed words; it never invents text that is not on the page.
+PUNCTUATION_FOLD = str.maketrans({
+    "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'", "\u2032": "'",
+    "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"', "\u2033": '"',
+    "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-",
+    "\u2015": "-", "\u2212": "-",
+})
+
+
 def normalize(text: str) -> str:
-    return "".join(c for c in unicodedata.normalize("NFKC", text).casefold()
-                   if not c.isspace() and c != "\u00ad")
+    folded = unicodedata.normalize("NFKC", text).casefold().translate(PUNCTUATION_FOLD)
+    return "".join(c for c in folded if not c.isspace() and c != "\u00ad")
 
 
 def index_pdf(path: Path, source_id: str) -> dict:

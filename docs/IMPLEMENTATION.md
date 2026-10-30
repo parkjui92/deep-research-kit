@@ -1,4 +1,10 @@
-# Deep Research Kit 0.1.0 구현 범위
+# Deep Research Kit 구현 범위
+
+## 0.2.0 (2026-10-31)
+
+화면 재설계: `ui/chrome.py`(상태 낱말·색·머리 띠·빈 상태·PDF 창)·`ui/pages.py`(여섯 단계)·`.streamlit/config.toml`(토큰·자체 호스팅 Pretendard)·`assets/styles.css`. 근거 검토에 진행 막대·상태 필터·“저장하고 다음”, 비교에 설계 변경 표와 전후 값 표를 더했다. 로직·버튼 이름·파일 형식은 0.1.0과 같다. 원칙은 `docs/DESIGN.md`.
+
+## 0.1.0
 
 로컬 개발과 배포 ZIP 준비를 완료했다. 실제 검증과 미검증 환경은 `VALIDATION.md`를 확인한다. GitHub 원격 저장소 게시와 원격 CI 실행은 아직 하지 않았다.
 

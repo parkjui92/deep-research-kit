@@ -12,6 +12,7 @@ Deep Research Kit original code is licensed under Apache-2.0. Dependencies retai
 | PyYAML | Configuration | MIT · https://github.com/yaml/pyyaml |
 | filelock | Local project write locks | MIT (installed 3.32.7 metadata) · https://github.com/tox-dev/filelock |
 | HTTPX | Optional API/search adapters | BSD-3-Clause · https://github.com/encode/httpx |
+| Pretendard 1.3.9 (Regular·Bold, Korean + Latin subset in `static/fonts/`) | UI typeface, self-hosted so the classroom renders the same offline | SIL Open Font License 1.1 · https://github.com/orioncactus/pretendard · license text in `static/fonts/LICENSE-Pretendard.txt` |
 
 The pinned environment is described by `uv.lock`; installed package distributions include their own notices. Development dependencies include pytest (MIT), Ruff (MIT) and ReportLab (BSD).
 

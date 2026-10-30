@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FILES = [".gitignore", "CLAUDE.md", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md",
          "app.py", "pyproject.toml", "uv.lock", "start.command", "start.bat"]
-FOLDERS = [".claude", ".github", ".streamlit", "deep_research", "docs", "examples", "tests", "tools"]
+FOLDERS = [".claude", ".github", ".streamlit", "assets", "deep_research", "docs", "examples", "static", "tests", "tools", "ui"]
 
 
 def main():
@@ -16,7 +16,7 @@ def main():
     parser.add_argument("--classroom", action="store_true")
     args = parser.parse_args()
     kind = "classroom" if args.classroom else "source"
-    output = ROOT / "dist" / f"deep-research-kit-0.1.0-{kind}.zip"
+    output = ROOT / "dist" / f"deep-research-kit-0.2.0-{kind}.zip"
     output.parent.mkdir(exist_ok=True)
     paths = [ROOT / f for f in FILES]
     for folder in FOLDERS:
@@ -36,7 +36,7 @@ def main():
             archive.write(path, "deep-research-kit/" + relative)
             hashes[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
         archive.writestr("deep-research-kit/RELEASE-MANIFEST.json", json.dumps(
-            {"version": "0.1.0", "kind": kind, "sha256": hashes}, ensure_ascii=False, indent=2))
+            {"version": "0.2.0", "kind": kind, "sha256": hashes}, ensure_ascii=False, indent=2))
     print(f"{output} ({output.stat().st_size:,} bytes)")
 
 

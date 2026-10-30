@@ -4,7 +4,7 @@
 
 기술영향평가를 공통 사례로 제공하지만 조사 질문·선별 기준·추출 항목을 바꾸면 논문 준비, 정책 비교, 사업 검토에도 사용할 수 있습니다.
 
-- **UI**: 조사 설계 → 문헌 선별 → 추출 → 실제 PDF 하이라이트와 사람의 검토 → 종합 → 비교·내보내기
+- **UI**: 조사 설계 → 문헌 선별 → 추출 → 실제 PDF 하이라이트와 사람의 검토 → 종합 → 비교·내보내기. 화면 규칙은 [docs/DESIGN.md](docs/DESIGN.md)
 - **스킬**: `.claude/skills/deep-research/SKILL.md`. 같은 프로젝트 파일과 Python 코어를 사용합니다.
 - **다음 작업**: Markdown + JSON + CSV로 문헌 ID·근거 ID·원문 위치·검토 상태를 보존합니다. 위키 작성은 다음 단계입니다.
 
@@ -66,7 +66,11 @@ uv run python -m deep_research.examples --project projects/class-example
 ## 뜯어보기
 
 ```text
-app.py                          # 로컬 UI
+app.py                          # 로컬 UI 진입점
+ui/
+  chrome.py                     # 상태 낱말·색, 머리 띠, 빈 상태, PDF 창 (docs/DESIGN.md)
+  pages.py                      # 여섯 단계 화면
+assets/styles.css · static/fonts/   # 보조 스타일 · Pretendard(OFL) 서브셋
 deep_research/
   project.py                    # 설정·문헌·선별 기록
   documents.py                  # PDF 색인·원문 위치 대조
@@ -105,6 +109,7 @@ uv run drk --project projects/my-research api-synthesize RUN_ID
 - 이 버전은 텍스트 레이어가 있는 PDF를 대상으로 합니다. OCR, 웹페이지 원문 저장, 표 구조 인식, 스캔 이미지 추출은 지원하지 않습니다.
 - 회전·cropbox가 다른 페이지는 원본을 보여주되 자동 강조를 검증된 위치로 처리하지 않습니다. 인쇄된 쪽 번호는 자동 추정하지 않으며 PDF의 1부터 시작하는 쪽수를 씁니다.
 - 다단 편집·특수 글꼴·수식으로 읽기 순서가 깨질 수 있습니다. 위치 일치가 실패하면 보류하고 원문을 확인하세요.
+- 곡선 따옴표(’ “ ”)와 대시(– —)는 직선 부호로 접어 대조합니다. 그 밖의 글자가 다르면 위치를 찾지 못합니다.
 - 줄끝 하이픈으로 나뉜 단어(`produc-`/`tivity`)는 이어 쓴 인용도 찾지만, 인쇄된 그대로의 대조를 먼저 시도합니다. 쪽을 넘는 인용은 찾지 못하므로 쪽마다 나누어 인용하세요.
 - Crossref는 선택적인 서지 검색입니다. 웹 전체 딥리서치, 유료 원문 접근권, Scite의 전 세계 인용 맥락 데이터베이스를 제공하지 않습니다.
 - 기본 서버는 localhost에서 실행합니다. 계정·접근 제어를 제공하지 않으므로 공용 인터넷 서비스로 그대로 배포하지 마세요.
@@ -117,6 +122,6 @@ uv run pytest -q
 uv run ruff check .
 ```
 
-[재사용 분석](docs/REUSE.md), [검증 기록](docs/VALIDATION.md), [라이선스](LICENSE), [외부 구성요소 고지](THIRD_PARTY_NOTICES.md)를 확인하세요.
+[화면 설계 원칙](docs/DESIGN.md), [재사용 분석](docs/REUSE.md), [검증 기록](docs/VALIDATION.md), [라이선스](LICENSE), [외부 구성요소 고지](THIRD_PARTY_NOTICES.md)를 확인하세요.
 
 프로젝트 스킬 형식은 [Claude Code 공식 문서](https://code.claude.com/docs/en/skills), 선택 API 요청 구조는 [공식 Chat Completions API 문서](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)를 기준으로 작성했습니다.
