@@ -1,5 +1,6 @@
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from . import workflow
@@ -8,7 +9,11 @@ from .project import Project, atomic_text, read_json
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="근거를 추적하는 문헌조사 도구")
+    # Windows pipes default to the locale code page; paper text needs UTF-8.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+    parser =argparse.ArgumentParser(description="근거를 추적하는 문헌조사 도구")
     parser.add_argument("--project", default="projects/my-research")
     commands = parser.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init")

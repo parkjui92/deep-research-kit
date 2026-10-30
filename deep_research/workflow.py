@@ -73,7 +73,8 @@ def prepare(project: Project):
         write_json(folder / "evidence.json", [])
         write_json(folder / "reviews.json", [])
         atomic_text(folder / "TASK.md", EXTRACTION_INSTRUCTIONS +
-                    "\n각 requests/*.json을 읽고 responses/에 JSON을 작성한 뒤 drk import-extraction으로 검증하세요.\n")
+                    "\n각 requests/*.json을 읽고 응답 JSON을 drafts/<source_id>.json에 작성한 뒤 "
+                    "drk import-extraction으로 검증하세요. responses/는 코어가 관리하므로 직접 쓰지 마세요.\n")
         return run_id
 
 
@@ -141,7 +142,8 @@ def import_extraction(project, run_id, payload):
             allowed_passages = {p["id"] for p in request["passages"]}
             if any(q["passage_id"] not in allowed_passages for q in quotes):
                 raise ValueError("이번 요청의 조사 범위에 없는 원문 구간입니다.")
-            output.append({"id": "e_" + fingerprint([source_id, row["field_id"]])[:16],
+            # Run-scoped: the same source and field in another run is a different reading.
+            output.append({"id": "e_" + fingerprint([run_id, source_id, row["field_id"]])[:16],
                            "source_id": source_id, "field_id": row["field_id"], "value": value,
                            "note": str(row.get("note", "")), "locators": locators,
                            "page_scope": request["page_scope"],

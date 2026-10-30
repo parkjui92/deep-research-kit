@@ -216,3 +216,46 @@ def test_rotated_and_cropped_pages_are_not_false_verified(tmp_path):
     assert locate_quote(index, passage["id"], passage["text"])["status"] == "unsupported_page_geometry"
     with pdfplumber.open(path) as document:
         assert document.pages[0].rotation == 90
+
+
+def test_line_end_hyphen_is_joined_only_as_fallback(tmp_path):
+    from deep_research.documents import index_pdf
+    buf = io.BytesIO()
+    pdf = canvas.Canvas(buf)
+    pdf.drawString(50, 750, "Developers using AI tools showed lower produc-")
+    pdf.drawString(50, 735, "tivity in the field trial with well- known tasks.")
+    pdf.save()
+    path = tmp_path / "hyphen.pdf"
+    path.write_bytes(buf.getvalue())
+    index = index_pdf(path, "hyphen")
+    pid = index["passages"][0]["id"]
+    joined = locate_quote(index, pid, "showed lower productivity in the field")
+    assert joined["status"] == "exact_normalized" and joined["dehyphenated"]
+    assert len(joined["boxes"]) == 2  # one box per printed line
+    printed = locate_quote(index, pid, "showed lower produc- tivity in the field")
+    assert printed["status"] == "exact_normalized" and not printed["dehyphenated"]
+    # A hyphen inside a line is not a line break and is never joined.
+    assert locate_quote(index, pid, "trial with wellknown tasks")["status"] == "unmatched"
+
+
+def test_evidence_ids_are_scoped_to_their_run(project):
+    first, second = extracted(project), extracted(project)
+    ids = lambda run: {(e["source_id"], e["field_id"]): e["id"] for e in w.evidence(project, run)}  # noqa: E731
+    assert ids(first).keys() == ids(second).keys()
+    assert not set(ids(first).values()) & set(ids(second).values())
+    assert compare(project, first, second)["differences"] == []
+
+
+def test_task_file_matches_skill_draft_location(project):
+    run = w.prepare(project)
+    task = (project.run_dir(run) / "TASK.md").read_text(encoding="utf-8")
+    assert "drafts/" in task and "responses/는 코어가 관리" in task
+
+
+def test_text_files_are_read_and_written_as_utf8():
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    for path in [root / "app.py", *(root / "deep_research").glob("*.py")]:
+        source = path.read_text(encoding="utf-8")
+        assert not re.search(r"\.(read|write)_text\((?![^)]*encoding)", source), path.name

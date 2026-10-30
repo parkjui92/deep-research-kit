@@ -199,7 +199,8 @@ def review_page(project):
         for locator in row["locators"]:
             st.markdown("**원문 발췌**")
             st.write(locator["quote"])
-            st.caption(f"PDF {locator['page']}쪽 · {locator['status']}")
+            joined = " · 줄끝 하이픈을 이어 대조" if locator.get("dehyphenated") else ""
+            st.caption(f"PDF {locator['page']}쪽 · {locator['status']}{joined}")
         st.caption(row["note"])
         with st.form("review-" + run_id + selected):
             previous_status = row["review"]["status"] if row["review"]["status"] in REVIEWS else "hold"

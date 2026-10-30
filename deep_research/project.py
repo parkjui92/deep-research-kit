@@ -91,9 +91,9 @@ class Project:
         return self
 
     def config(self):
-        plan = yaml.safe_load((self.root / "research-plan.yaml").read_text())
-        fields = yaml.safe_load((self.root / "config/extraction-fields.yaml").read_text())
-        rules = (self.root / "config/synthesis-rules.md").read_text()
+        plan = yaml.safe_load((self.root / "research-plan.yaml").read_text(encoding="utf-8"))
+        fields = yaml.safe_load((self.root / "config/extraction-fields.yaml").read_text(encoding="utf-8"))
+        rules = (self.root / "config/synthesis-rules.md").read_text(encoding="utf-8")
         self.validate_config(plan, fields)
         return {"plan": plan, "fields": fields, "synthesis_rules": rules}
 

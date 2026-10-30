@@ -62,13 +62,14 @@ def locate_quote(index: dict, passage_id: str, quote: str) -> dict:
     if not page.get("anchors_supported", True):
         return {**result, "status": "unsupported_page_geometry"}
     words = page["words"][passage["word_start"]:passage["word_end"]]
-    chars, mapping = [], []
-    for i, word in enumerate(words):
-        for char in normalize(word["text"]):
-            chars.append(char)
-            mapping.append(i)
-    haystack = "".join(chars)
-    hits = [m.start() for m in re.finditer("(?=" + re.escape(needle) + ")", haystack)]
+    haystack, mapping = _haystack(words)
+    hits = _find(needle, haystack)
+    dehyphenated = False
+    if not hits:
+        # The source text as printed always wins; joining a line-end hyphen is a fallback.
+        joined, joined_mapping = _haystack(words, dehyphenate=True)
+        if joined != haystack and (joined_hits := _find(needle, joined)):
+            hits, mapping, dehyphenated = joined_hits, joined_mapping, True
     if len(hits) != 1:
         return {**result, "status": "ambiguous" if hits else "unmatched"}
     start = hits[0]
@@ -86,6 +87,32 @@ def locate_quote(index: dict, passage_id: str, quote: str) -> dict:
                       "width": word["x1"] - word["x0"],
                       "height": word["bottom"] - word["top"],
                       "color": "rgba(245, 191, 69, 0.35)"})
-    return {**result, "status": "exact_normalized", "boxes": boxes,
+    return {**result, "status": "exact_normalized", "dehyphenated": dehyphenated, "boxes": boxes,
             "page_width": page["width"], "page_height": page["height"],
             "context": passage["text"], "source_sha256": index["sha256"]}
+
+
+def _line_end_hyphen(words: list, i: int) -> bool:
+    """`produc-` at the end of a line followed by `tivity` at the start of the next."""
+    word, following = words[i], words[i + 1] if i + 1 < len(words) else None
+    text = word["text"]
+    if following is None or len(text) < 3 or not text.endswith("-") or not text[-2].isalpha():
+        return False
+    wrapped = following["top"] - word["top"] > 2 or following["x0"] < word["x0"]
+    return wrapped and following["text"][:1].islower()
+
+
+def _haystack(words: list, dehyphenate: bool = False):
+    chars, mapping = [], []
+    for i, word in enumerate(words):
+        text = normalize(word["text"])
+        if dehyphenate and _line_end_hyphen(words, i):
+            text = text[:-1]
+        for char in text:
+            chars.append(char)
+            mapping.append(i)
+    return "".join(chars), mapping
+
+
+def _find(needle: str, haystack: str) -> list:
+    return [m.start() for m in re.finditer("(?=" + re.escape(needle) + ")", haystack)]
