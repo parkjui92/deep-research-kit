@@ -1,26 +1,26 @@
 [theme]
 base = "light"
-primaryColor = "#1F5C4C"
-backgroundColor = "#FAF9F6"
-secondaryBackgroundColor = "#F1F0EA"
-textColor = "#1C2A24"
-linkColor = "#1F5C4C"
-borderColor = "#D9D7CE"
-dataframeBorderColor = "#D9D7CE"
-dataframeHeaderBackgroundColor = "#F1F0EA"
+primaryColor = "#4F46E5"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F6FA"
+textColor = "#1F2937"
+linkColor = "#4F46E5"
+borderColor = "#D6D9E3"
+dataframeBorderColor = "#D6D9E3"
+dataframeHeaderBackgroundColor = "#F0F1F7"
 showWidgetBorder = true
-showSidebarBorder = true
-baseRadius = "6px"
-buttonRadius = "6px"
+showSidebarBorder = false
+baseRadius = "8px"
+buttonRadius = "8px"
 baseFontSize = 16
 font = "Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif"
 headingFont = "Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif"
 headingFontWeights = [700, 700, 700, 600, 600, 600]
-greenColor = "#1E7A3E"
-orangeColor = "#A86300"
-blueColor = "#1858B8"
-redColor = "#C2321B"
-grayColor = "#6B7570"
+greenColor = "#16A34A"
+orangeColor = "#D97706"
+blueColor = "#4F46E5"
+redColor = "#B91C1C"
+grayColor = "#6B7280"
 
 # Pretendard (SIL OFL 1.1), Korean + Latin subset bundled in static/fonts so the
 # classroom looks the same offline. Falls back to the system Korean font.
@@ -34,8 +34,18 @@ family = "Pretendard"
 url = "app/static/fonts/Pretendard-Bold.woff2"
 weight = 700
 
+# Dark navy step rail on the left, white workspace on the right (0.2.1).
 [theme.sidebar]
-backgroundColor = "#F1F0EA"
+backgroundColor = "#111A2E"
+secondaryBackgroundColor = "#1C2742"
+textColor = "#E5E7EB"
+primaryColor = "#818CF8"
+linkColor = "#A5B4FC"
+borderColor = "#2A3550"
+dataframeHeaderBackgroundColor = "#1C2742"
+
+[client]
+toolbarMode = "minimal"
 
 [server]
 maxUploadSize = 100

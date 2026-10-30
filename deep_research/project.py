@@ -11,7 +11,33 @@ from pathlib import Path
 import yaml
 from filelock import FileLock
 
-from .documents import digest, index_pdf
+from .documents import digest, index_pdf, locate_anywhere
+
+SCREEN_QUOTE_PREFIX = {"포함": "inclusion", "포함:": "inclusion", "제외": "exclusion", "제외:": "exclusion",
+                       "inclusion": "inclusion", "exclusion": "exclusion"}
+
+
+def parse_screen_quotes(text: str) -> list[dict]:
+    """One quote per line. `포함: …` / `제외: …` names the criterion the quote speaks to."""
+    quotes = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        criterion = ""
+        head, sep, rest = line.partition(":")
+        if sep and head.strip() in SCREEN_QUOTE_PREFIX and head.strip() not in {"inclusion", "exclusion"}:
+            criterion, line = SCREEN_QUOTE_PREFIX[head.strip()], rest.strip()
+        elif sep and head.strip() in {"inclusion", "exclusion"}:
+            criterion, line = head.strip(), rest.strip()
+        if line:
+            quotes.append({"text": line, "criterion": criterion})
+    return quotes
+
+
+def format_screen_quotes(quotes: list[dict]) -> str:
+    label = {"inclusion": "포함: ", "exclusion": "제외: ", "": ""}
+    return "\n".join(label.get(q.get("criterion", ""), "") + q["quote"] for q in quotes or [])
 
 DEFAULT_PLAN = {
     "question": "AI 활용은 연구·지식업무의 생산성과 품질에 어떤 영향을 미치는가?",
@@ -178,17 +204,22 @@ class Project:
             write_json(self.root / "catalog.json", catalog)
         return source_id
 
-    def screen(self, source_id, decision, reason, study_id=None, title=None, doi=None, url=None):
+    def screen(self, source_id, decision, reason, study_id=None, title=None, doi=None, url=None, quotes=None):
+        """Record a screening decision. `quotes` are printed passages that justify it; each is
+        located in the PDF so the screen can highlight it. A quote that is not found stays in
+        the record as `unmatched` — the decision is still the reviewer's, never the string match's."""
         if decision not in {"include", "exclude", "pending"} or not reason.strip():
             raise ValueError("선별 상태와 판단 이유가 필요합니다.")
+        located = [self._locate_screen_quote(source_id, q) for q in (quotes or [])]
         with self.lock:
             catalog = self.catalog()
             source = next((s for s in catalog if s["id"] == source_id), None)
             if source is None:
                 raise ValueError("자료 ID를 찾을 수 없습니다.")
             source["history"].append({"at": now(), "decision": decision, "reason": reason,
-                                      "previous": source["decision"]})
-            source.update(decision=decision, reason=reason)
+                                      "previous": source["decision"],
+                                      "quotes": [{"quote": q["quote"], "criterion": q["criterion"], "status": q["status"]} for q in located]})
+            source.update(decision=decision, reason=reason, screen_quotes=located)
             source["criteria_hash"] = self.criteria_hash()
             if study_id:
                 source["study_id"] = study_id.strip()
@@ -202,6 +233,21 @@ class Project:
                 source["url"] = url.strip()
             write_json(self.root / "catalog.json", catalog)
 
+    def _locate_screen_quote(self, source_id, quote):
+        if isinstance(quote, str):
+            quote = {"text": quote, "criterion": ""}
+        text = " ".join(str(quote.get("text", "")).split())
+        if not text:
+            raise ValueError("빈 근거 구절은 저장할 수 없습니다.")
+        criterion = quote.get("criterion", "")
+        if criterion not in {"", "inclusion", "exclusion"}:
+            raise ValueError("근거 구절의 기준은 '포함' 또는 '제외'만 가능합니다.")
+        found = locate_anywhere(self.index(source_id), text)
+        return {"quote": text, "criterion": criterion, "status": found["status"], "page": found["page"],
+                "passage_id": found.get("passage_id"), "boxes": found["boxes"],
+                "occurrences": found.get("occurrences", []),
+                "dehyphenated": found.get("dehyphenated", False)}
+
     def criteria_hash(self):
         plan = self.config()["plan"]
         return digest(json.dumps({k: plan.get(k) for k in
@@ -210,6 +256,17 @@ class Project:
 
     def run_dir(self, run_id):
         return self.root / "runs" / safe_id(run_id)
+
+    def delete_empty_run(self, run_id):
+        """Remove a run that never received a response. Anything with responses or reviews stays."""
+        folder = self.run_dir(run_id)
+        if not (folder / "run.json").exists():
+            raise ValueError("실행을 찾을 수 없습니다.")
+        if any((folder / "responses").glob("*.json")) or (folder / "reviews.json").exists() and read_json(folder / "reviews.json"):
+            raise ValueError("응답이나 검토 기록이 있는 실행은 지우지 않습니다.")
+        with self.lock:
+            import shutil
+            shutil.rmtree(folder)
 
     def runs(self):
         folder = self.root / "runs"

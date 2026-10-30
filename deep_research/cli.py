@@ -5,7 +5,7 @@ from pathlib import Path
 
 from . import workflow
 from .exports import compare, export_zip, report
-from .project import Project, atomic_text, read_json
+from .project import Project, atomic_text, parse_screen_quotes, read_json
 
 
 def main(argv=None):
@@ -28,6 +28,8 @@ def main(argv=None):
     screen.add_argument("decision", choices=["include", "exclude", "pending"])
     screen.add_argument("--reason", required=True)
     screen.add_argument("--study-id")
+    screen.add_argument("--quote", action="append", default=[],
+                        help="판단의 근거가 된 원문 구절(반복 가능). '포함: …'/'제외: …'로 기준을 표시할 수 있다.")
     commands.add_parser("prepare")
     commands.add_parser("status")
     read = commands.add_parser("read-request")
@@ -68,8 +70,10 @@ def main(argv=None):
                 path = Path(args.pdf)
                 result = project.add_pdf(path.read_bytes(), path.name, args.title, args.doi, args.url)
             case "screen":
-                project.screen(args.source_id, args.decision, args.reason, args.study_id)
-                result = "saved"
+                project.screen(args.source_id, args.decision, args.reason, args.study_id,
+                               quotes=parse_screen_quotes("\n".join(args.quote)))
+                result = {"saved": True, "quotes": [{"quote": q["quote"], "status": q["status"], "page": q["page"]}
+                                                   for q in project.source(args.source_id).get("screen_quotes", [])]}
             case "prepare":
                 result = workflow.prepare(project)
             case "status":

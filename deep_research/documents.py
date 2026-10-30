@@ -102,6 +102,56 @@ def locate_quote(index: dict, passage_id: str, quote: str) -> dict:
             "context": passage["text"], "source_sha256": index["sha256"]}
 
 
+def locate_anywhere(index: dict, quote: str) -> dict:
+    """Find a quote anywhere in the document. Only one printed occurrence counts.
+
+    Passages overlap, so the same occurrence can surface twice; it is one hit when the
+    first highlighted box lands on the same spot. Two different spots are ambiguous.
+    """
+    result = {"quote": quote, "status": "unmatched", "page": None, "boxes": [], "passage_id": None}
+    if len(normalize(quote)) < 8:
+        return {**result, "status": "too_short"}
+    hits = {}
+    for passage in index["passages"]:
+        found = locate_quote(index, passage["id"], quote)
+        if found["status"] == "ambiguous":
+            # Two printed copies inside one window (e.g. a running head): record each copy.
+            for copy in _each_hit(index, passage, quote):
+                box = copy["boxes"][0]
+                hits.setdefault((copy["page"], round(box["x"]), round(box["y"])), copy)
+        elif found["status"] == "exact_normalized":
+            box = found["boxes"][0]
+            hits.setdefault((found["page"], round(box["x"]), round(box["y"])), found)
+    if not hits:
+        return result
+    ordered = sorted(hits.values(), key=lambda h: (h["page"], h["boxes"][0]["y"], h["boxes"][0]["x"]))
+    first = ordered[0]
+    if len(ordered) == 1:
+        return first
+    # The sentence is printed in more than one place (abstract and body, say). Every place is
+    # a true location of the printed words, so all of them are kept and the first is shown.
+    return {**first, "status": "multiple", "occurrences": [{"page": h["page"], "boxes": h["boxes"],
+                                                            "passage_id": h["passage_id"]} for h in ordered]}
+
+
+def _each_hit(index: dict, passage: dict, quote: str) -> list:
+    """Split a passage with repeated copies of the quote into one locator per copy."""
+    needle = normalize(quote)
+    page = index["pages"][passage["page"] - 1]
+    words = page["words"][passage["word_start"]:passage["word_end"]]
+    haystack, mapping = _haystack(words)
+    out = []
+    for start in _find(needle, haystack):
+        lo, hi = mapping[start], mapping[start + len(needle) - 1]
+        sub = {**passage, "id": passage["id"] + f"#{start}", "word_start": passage["word_start"] + lo,
+               "word_end": passage["word_start"] + hi + 1}
+        probe = {**index, "passages": [sub]}
+        found = locate_quote(probe, sub["id"], quote)
+        if found["status"] == "exact_normalized":
+            out.append({**found, "passage_id": passage["id"]})
+    return out
+
+
 def _line_end_hyphen(words: list, i: int) -> bool:
     """`produc-` at the end of a line followed by `tivity` at the start of the next."""
     word, following = words[i], words[i + 1] if i + 1 < len(words) else None

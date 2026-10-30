@@ -38,7 +38,7 @@ def prepare(project: Project):
         config = project.config()
         sources = [s for s in project.catalog() if s["decision"] == "include"]
         if not sources:
-            raise ValueError("포함할 문헌을 먼저 선별하세요.")
+            raise ValueError("포함으로 저장한 문헌이 없습니다. 「2 · 문헌 선별」에서 문헌마다 포함·제외와 이유를 저장한 뒤 다시 누르세요. 공통 사례도 등록만 되고 아직 '보류'입니다.")
         if len(sources) > config["plan"]["max_documents"]:
             raise ValueError("설정한 문헌 수 제한을 넘었습니다. 선별표나 제한을 수정하세요.")
         if any(s.get("criteria_hash") != project.criteria_hash() for s in sources):

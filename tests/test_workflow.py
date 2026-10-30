@@ -282,3 +282,70 @@ def test_blank_field_id_gets_korean_message():
     with pytest.raises(ValueError, match="id"):
         Project.validate_config({"question": "q", "max_documents": 3},
                                 [{"id": None, "name": "x", "instruction": "y"}])
+
+
+def test_locate_anywhere_unique_ambiguous_unmatched(project):
+    from deep_research.documents import locate_anywhere
+    sid = project.catalog()[0]["id"]
+    index = project.index(sid)
+    hit = locate_anywhere(index, "19 percent longer completion time.")
+    assert hit["status"] == "exact_normalized" and hit["page"] == 1 and hit["boxes"]
+    twice = locate_anywhere(index, "Repeated evidence phrase.")
+    assert twice["status"] == "multiple" and len(twice["occurrences"]) == 2 and twice["page"] == 2
+    assert locate_anywhere(index, "invented positive conclusion")["status"] == "unmatched"
+    assert locate_anywhere(index, "short")["status"] == "too_short"
+
+
+def test_screen_quotes_are_located_and_kept_in_history(project):
+    sid = project.catalog()[0]["id"]
+    project.screen(sid, "include", "Measured outcome", quotes=[
+        {"text": "19 percent longer completion time.", "criterion": "inclusion"},
+        "not printed anywhere in this pdf"])
+    source = project.source(sid)
+    statuses = [q["status"] for q in source["screen_quotes"]]
+    assert statuses == ["exact_normalized", "unmatched"]
+    assert source["screen_quotes"][0]["page"] == 1 and source["screen_quotes"][0]["criterion"] == "inclusion"
+    assert source["history"][-1]["quotes"][1]["status"] == "unmatched"
+    with pytest.raises(ValueError):
+        project.screen(sid, "include", "x", quotes=[{"text": "19 percent", "criterion": "maybe"}])
+    with pytest.raises(ValueError):
+        project.screen(sid, "include", "x", quotes=["   "])
+
+
+def test_parse_and_format_screen_quotes():
+    from deep_research.project import format_screen_quotes, parse_screen_quotes
+    parsed = parse_screen_quotes("포함: first sentence.\n\n제외: second one\nplain third\ninclusion: fourth")
+    assert [q["criterion"] for q in parsed] == ["inclusion", "exclusion", "", "inclusion"]
+    assert parsed[0]["text"] == "first sentence." and parsed[2]["text"] == "plain third"
+    stored = [{"quote": "a b", "criterion": "inclusion"}, {"quote": "c", "criterion": ""}]
+    assert format_screen_quotes(stored) == "포함: a b\nc"
+    assert parse_screen_quotes(format_screen_quotes(stored)) == [{"text": "a b", "criterion": "inclusion"}, {"text": "c", "criterion": ""}]
+
+
+def test_report_lists_screening_quotes(project):
+    sid = project.catalog()[0]["id"]
+    project.screen(sid, "include", "Measured outcome", quotes=["19 percent longer completion time."])
+    run = extracted(project)
+    text = report(project, run)
+    assert "## 선별 판단과 근거 구절" in text
+    assert "[기준 미표시 · PDF 1쪽 · 글자 그대로 일치] 19 percent longer completion time." in text
+
+
+def test_example_screening_keeps_human_decisions(tmp_path):
+    from deep_research.examples import SCREENING, apply_example_screening
+    from deep_research.project import write_json
+    p = Project(tmp_path / "ex").initialize()
+    sid = p.add_pdf(pdf_bytes(), "metr.pdf", "Fake METR")
+    sha = p.source(sid)["sha256"]
+    write_json(p.root / "example-manifest.json", [{"key": "metr-2025-v2", "sha256": sha}])
+    # Untouched paper gets the example screening (quotes will not match this fake PDF, and that is recorded).
+    apply_example_screening(p)
+    assert p.source(sid)["decision"] == "include" and p.source(sid)["reason"] == SCREENING["metr-2025-v2"]["reason"]
+    # A person's own decision and quotes survive a second load.
+    p.screen(sid, "exclude", "My own reason", quotes=["19 percent longer completion time."])
+    apply_example_screening(p)
+    assert p.source(sid)["decision"] == "exclude" and p.source(sid)["reason"] == "My own reason"
+    assert p.source(sid)["screen_quotes"][0]["quote"] == "19 percent longer completion time."
+    # Explicit reset is still possible.
+    apply_example_screening(p, keep_human_decisions=False)
+    assert p.source(sid)["decision"] == "include"

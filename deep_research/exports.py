@@ -5,9 +5,31 @@ import csv
 import io
 import json
 import zipfile
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from .project import read_json
 from .workflow import accepted, current_synthesis, evidence, manifest
+
+WORD = {"exact_normalized": "글자 그대로 일치", "multiple": "여러 곳에서 일치", "unmatched": "원문에서 못 찾음",
+        "ambiguous": "같은 문장이 여러 곳", "too_short": "구절이 너무 짧음", "invalid_passage": "구간 없음",
+        "unsupported_page_geometry": "회전·잘린 쪽", "matched": "위치 찾음", "needs_check": "위치 미확인", "not_found": "미발견",
+        "accept": "채택", "edit": "수정 후 채택", "hold": "보류", "reject": "제외", "pending": "미검토",
+        "include": "포함", "exclude": "제외"}
+
+
+def word(code):
+    return WORD.get(code, code)
+
+
+def local(iso):
+    try:
+        moment = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        return moment.astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return str(iso)[:16]
 
 
 def display_value(row):
@@ -47,11 +69,17 @@ def report(project, run_id, local_pdf_links=False):
     sources = {s["id"]: s for s in run["sources"]}
     fields = {f["id"]: f["name"] for f in run["config"]["fields"]}
     approved = accepted(project, run_id)
-    lines = ["# " + run["config"]["plan"]["question"], "", f"실행: `{run_id}`", "",
+    title = read_json(project.root / "project.json").get("title", "")
+    reviewers = sorted({r["review"].get("reviewer") for r in rows if r["review"].get("reviewer")})
+    notes = {r["note"] for r in rows if r.get("note")}
+    lines = ["# " + run["config"]["plan"]["question"], "",
+             f"프로젝트: {title} (`{project.root.name}`) · 실행 `{run_id}` · 실행 생성 {local(run['created_at'])} · 보고서 작성 {local(datetime.now(UTC).isoformat())}", "",
              (f"문헌 {len(sources)}건 · 연구 {len({s['study_id'] for s in sources.values()})}건 · "
-             f"채택 근거 {len(approved)}/{len(rows)}건"), "",
-             "원문 문자열 일치, 사람의 근거 검토, AI 종합은 서로 다른 단계입니다.", "",
-             "## 종합", ""]
+             f"채택 근거 {len(approved)}/{len(rows)}건 · 검토자 {', '.join(reviewers) or '없음'}"), "",
+             "원문 문자열 일치, 사람의 근거 검토, AI 종합은 서로 다른 단계입니다. 쪽수는 PDF 파일의 첫 장부터 센 것이라 인쇄 쪽 번호와 다를 수 있습니다.", ""]
+    if len(notes) == 1:
+        lines += ["추출 메모(모든 근거 공통): " + next(iter(notes)), ""]
+    lines += ["## 종합", ""]
     if synthesis:
         lines.append("아래는 검토된 근거에 기반한 AI 종합 초안입니다. 주장과 근거의 의미적 연결은 최종 확인이 필요합니다.\n")
         for claim in synthesis["claims"]:
@@ -71,25 +99,34 @@ def report(project, run_id, local_pdf_links=False):
                   f"문헌: {source['title']} (`{source['id']}`), 연구 ID: `{source['study_id']}`", "",
                   f"추출값: {row['value'] or '자료에서 찾지 못함'}", "",
                   f"읽기 범위: PDF {row['page_scope']['from']}~{row['page_scope']['to']}쪽 / 전체 {row['page_scope']['total']}쪽", "",
-                  f"위치 대조: `{row['match_status']}` · 검토: `{row['review']['status']}`", "",
+                  f"위치 대조: {word(row['match_status'])} · 검토: {word(row['review']['status'])}", "",
                   f"검토자: {row['review']['reviewer'] or '미검토'} · 이유: {row['review']['note'] or '—'}", ""]
         if row["review"]["status"] == "edit":
             lines += [f"수정값: {display_value(row)}", ""]
         for locator in row["locators"]:
             lines += [f"> {locator['quote'].replace(chr(10), ' ')}", "",
-                      f"PDF {locator['page']}쪽 · `{locator['status']}` · `{locator['passage_id']}`", ""]
+                      f"PDF {locator['page']}쪽 · {word(locator['status'])} · 구간 `{locator['passage_id']}`", ""]
             if local_pdf_links:
                 lines += [f"[원본 PDF 해당 쪽 열기](sources/{source['id']}.pdf#page={locator['page']})", ""]
-        if row["note"]:
+        if row["note"] and len(notes) > 1:
             lines += ["추출 메모: " + row["note"], ""]
     lines += ["## 확인 필요·제외", ""]
     for row in rows:
         if row not in approved:
-            lines.append(f"- {row['id']}: {row['match_status']} / {row['review']['status']} — {row['review']['note'] or row['note']}")
+            lines.append(f"- {row['id']}: {word(row['match_status'])} / {word(row['review']['status'])} — {row['review']['note'] or ('미검토' if len(notes) == 1 else row['note'])}")
     imported = {r["source_id"] for r in rows}
     for source in sources.values():
         if source["id"] not in imported:
             lines.append(f"- {source['title']}: 추출 응답 없음")
+    lines += ["", "## 선별 판단과 근거 구절", "",
+              "실행에 포함한 문헌마다 포함 판단의 이유와, 그 근거로 적은 원문 구절·위치입니다. 구절 위치는 문자열 대조 결과이고 기준 적합성은 사람의 판단입니다.", ""]
+    for source in sources.values():
+        lines += [f"- **{source['title']}** — 판단: {word(source['decision'])} · 이유: {source['reason'] or '—'}"]
+        for quote in source.get("screen_quotes", []):
+            where = (f"PDF {quote['page']}쪽" + (f" 외 {len(quote['occurrences']) - 1}곳" if quote.get("occurrences") else "")
+                     if quote["status"] in {"exact_normalized", "multiple"} else "원문에서 찾지 못함")
+            tag = {"inclusion": "포함 기준", "exclusion": "제외 기준"}.get(quote.get("criterion", ""), "기준 미표시")
+            lines += [f"  - [{tag} · {where} · {word(quote['status'])}] {quote['quote'].replace(chr(10), ' ')}"]
     lines += ["", "## 자료 목록", ""]
     for source in sources.values():
         link = source["url"] or ("https://doi.org/" + source["doi"] if source["doi"] else "원문은 프로젝트에 보관")
@@ -108,9 +145,14 @@ def export_zip(project, run_id, include_pdfs=False):
         archive.writestr("research.json", json.dumps(data, ensure_ascii=False, indent=2))
         csv_buffer = io.StringIO()
         writer = csv.writer(csv_buffer)
-        writer.writerow(["evidence_id", "source_id", "field_id", "value", "match_status", "review_status"])
+        writer.writerow(["근거 ID", "문헌 ID", "문헌", "항목", "검토 후 값", "위치 대조", "검토 상태", "검토자", "검토 이유", "PDF 쪽"])
+        sources = {s["id"]: s for s in data["run"]["sources"]}
+        fields = {f["id"]: f["name"] for f in data["run"]["config"]["fields"]}
         for row in data["evidence"]:
-            values = [row["id"], row["source_id"], row["field_id"], display_value(row) or "", row["match_status"], row["review"]["status"]]
+            pages = ", ".join(str(loc["page"]) for loc in row["locators"] if loc.get("page")) or ""
+            values = [row["id"], row["source_id"], sources.get(row["source_id"], {}).get("title", ""), fields.get(row["field_id"], row["field_id"]),
+                      display_value(row) or "", word(row["match_status"]), word(row["review"]["status"]),
+                      row["review"].get("reviewer", "") or "", row["review"].get("note", "") or "", pages]
             # Spreadsheet formula injection protection for user/model text.
             writer.writerow(["'" + str(v) if str(v).startswith(("=", "+", "-", "@")) else v for v in values])
         archive.writestr("evidence.csv", "\ufeff" + csv_buffer.getvalue())
