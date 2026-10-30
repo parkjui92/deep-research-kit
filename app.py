@@ -213,6 +213,7 @@ def review_page(project):
                     raise ValueError("채택하려면 원문 문맥 확인 항목을 선택하세요.")
                 flow.review(project, run_id, selected, status, note, reviewer, value)
                 st.session_state["reviewer"] = reviewer
+                st.session_state["flash"] = "판단을 저장했습니다. 다음 근거를 검토하거나 종합 단계로 이동하세요."
                 st.rerun()
         st.caption("판단을 바꾸면 이전 종합은 만료됩니다. 원래 추출값과 검토 이력은 보존됩니다.")
     with right:
@@ -316,6 +317,8 @@ def main():
     stage = st.sidebar.radio("작업 단계", STAGES)
     st.title(read_json(project.root / "project.json")["title"])
     st.caption("AI가 추출하고, 사람이 근거를 판단합니다.")
+    if message := st.session_state.pop("flash", None):
+        st.success(message)
     pages = [plan_page, sources_page, extraction_page, review_page, synthesis_page, export_page]
     pages[STAGES.index(stage)](project)
 
