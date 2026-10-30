@@ -1,0 +1,26 @@
+name: 실습 결과와 개선 제안
+description: 바꾼 기준, 기대와 실제 결과, 개선안을 공유합니다.
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: 조사 목적과 실행 환경
+      description: 원문·개인정보·API 키는 첨부하지 마세요.
+    validations:
+      required: true
+  - type: textarea
+    id: changed
+    attributes:
+      label: 바꾼 설정과 재현 방법
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: 기대한 결과와 실제 결과
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 개선 제안
