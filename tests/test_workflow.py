@@ -380,3 +380,37 @@ def test_collection_keeps_metadata_only_candidates(project):
     # Same DOI again replaces the earlier row instead of duplicating it.
     collect(project, {"title": "No PDF here v2", "authors": [], "year": 2021, "venue": "", "doi": "10.9/none", "url": "", "pdf_url": "", "oa": False, "provider": "test"})
     assert len(project.collection()) == 1 and project.collection()[0]["title"] == "No PDF here v2"
+
+
+def _blank_pdf(pages=3, text_on=None):
+    buf = io.BytesIO()
+    pdf = canvas.Canvas(buf)
+    for number in range(1, pages + 1):
+        pdf.rect(72, 500, 400, 200, fill=1)  # an image-like page: marks but no text layer
+        if number == text_on:
+            pdf.drawString(50, 750, "Text that exists only on a late page of the document.")
+        pdf.showPage()
+    pdf.save()
+    return buf.getvalue()
+
+
+def test_scanned_pdf_is_flagged_and_cannot_start_a_run(project):
+    from deep_research.project import has_no_text, no_text_note
+    sid = project.add_pdf(_blank_pdf(), "scan.pdf", "Scanned report")
+    scanned = project.source(sid)
+    assert has_no_text(scanned) and not has_no_text(project.catalog()[0])
+    assert "Scanned report" in no_text_note(project.catalog()) and "ocrmypdf" in no_text_note(project.catalog())
+    project.screen(sid, "include", "Bulk include")
+    with pytest.raises(ValueError, match="읽을 수 있는 글자가 없는 문헌.*Scanned report"):
+        w.prepare(project)
+    assert project.runs() == []
+
+
+def test_text_outside_page_scope_counts_as_unreadable(tmp_path):
+    p = Project(tmp_path / "late").initialize()
+    plan = p.config()["plan"] | {"max_pages_per_document": 2}
+    p.save_config(plan, p.config()["fields"], p.config()["synthesis_rules"])
+    sid = p.add_pdf(_blank_pdf(text_on=3), "late.pdf", "Late text")
+    p.screen(sid, "include", "Include")
+    with pytest.raises(ValueError, match="Late text"):
+        w.prepare(p)

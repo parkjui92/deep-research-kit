@@ -89,6 +89,19 @@ def read_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def has_no_text(source: dict) -> bool:
+    """Scanned PDF: pages but no text layer at all. Nothing in it can be extracted or located."""
+    return bool(source.get("page_count")) and not source.get("text_pages")
+
+
+def no_text_note(sources: list[dict]) -> str:
+    titles = [s["title"] for s in sources if has_no_text(s)]
+    if not titles:
+        return ""
+    return (f"글자 없는 PDF(스캔본) {len(titles)}건은 AI가 읽을 수 없어 추출할 수 없습니다: {', '.join(titles)}. "
+            "제외로 바꾸거나, OCR(예: ocrmypdf)로 글자 층을 만든 PDF를 다시 올리세요.")
+
+
 def safe_id(value: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", value):
         raise ValueError("잘못된 ID입니다.")

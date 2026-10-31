@@ -44,6 +44,14 @@ def prepare(project: Project):
         if any(s.get("criteria_hash") != project.criteria_hash() for s in sources):
             raise ValueError("조사 질문·선별 기준이 변경되었습니다. 포함 문헌을 다시 선별하세요.")
         indexes = {s["id"]: project.index(s["id"]) for s in sources}
+        # A document with no readable text in scope would come back as "not found" for every
+        # field, which reads as "the paper does not say". Stop before any model runs.
+        page_limit = config["plan"].get("max_pages_per_document", 20)
+        unreadable = [s["title"] for s in sources if not any(
+            p["page"] <= (page_limit or len(indexes[s["id"]]["pages"])) for p in indexes[s["id"]]["passages"])]
+        if unreadable:
+            raise ValueError("읽을 수 있는 글자가 없는 문헌이 포함돼 있습니다(스캔본이거나 읽을 쪽수 안에 글자가 없음): "
+                             + ", ".join(unreadable) + ". 제외로 바꾸거나, OCR(예: ocrmypdf)로 글자 층을 만든 PDF를 다시 등록하세요.")
         run_id = datetime.now(UTC).strftime("r_%Y%m%dT%H%M%S_") + uuid.uuid4().hex[:6]
         folder = project.run_dir(run_id)
         folder.mkdir(parents=True)
