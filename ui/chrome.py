@@ -37,7 +37,7 @@ RUN_STATE = {"awaiting_extraction": ("응답 대기", "blue", ":material/hourgla
 # Internal codes that used to leak into Korean screens and reports.
 CODE_WORD = {"exact_normalized": "글자 그대로 일치", "multiple": "여러 곳에서 일치", "unmatched": "원문에서 못 찾음",
              "ambiguous": "같은 문장이 여러 곳", "too_short": "구절이 너무 짧음", "invalid_passage": "구간 없음",
-             "unsupported_page_geometry": "회전·잘린 쪽", "matched": "위치 찾음", "needs_check": "위치 미확인",
+             "unsupported_page_geometry": "회전·잘린 쪽", "partial_word": "단어 일부만 일치", "matched": "위치 찾음", "needs_check": "위치 미확인",
              "not_found": "미발견", "accept": "채택", "edit": "수정 후 채택", "hold": "보류", "reject": "제외",
              "pending": "미검토", "include": "포함", "exclude": "제외"}
 STAGE_HINT = {"1 · 조사 설계": "질문·기준·추출 항목", "2 · 문헌 선별": "논문 단위 · 어떤 논문을 쓸지(AI가 읽기 전)", "3 · 원문 추출": "기준을 고정하고 AI에게 원문 읽히기",

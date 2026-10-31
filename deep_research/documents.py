@@ -32,11 +32,28 @@ def normalize(text: str) -> str:
     return "".join(c for c in folded if not c.isspace() and c != "\u00ad")
 
 
+def _join_vertical_letters(words: list) -> list:
+    """Rotated margin text, such as arXiv's version stamp, comes out of pdfplumber one letter per
+    word: `a r X i v : 2 5 0 7 …`. The model then cannot read the version or the date (#14).
+    Letters of one rotated line whose boxes touch end to end are one word; a gap keeps the space."""
+    out = []
+    for word in words:
+        prev = out[-1] if out else None
+        if (prev is not None and not word.get("upright", True) and not prev.get("upright", True)
+                and abs(word["x0"] - prev["x0"]) < 1
+                and min(abs(prev["top"] - word["bottom"]), abs(word["top"] - prev["bottom"])) < 1):
+            prev.update(text=prev["text"] + word["text"], x0=min(prev["x0"], word["x0"]), x1=max(prev["x1"], word["x1"]),
+                        top=min(prev["top"], word["top"]), bottom=max(prev["bottom"], word["bottom"]))
+            continue
+        out.append(dict(word))
+    return out
+
+
 def index_pdf(path: Path, source_id: str) -> dict:
     pages, passages = [], []
     with pdfplumber.open(path) as pdf:
         for number, page in enumerate(pdf.pages, 1):
-            words = page.extract_words(x_tolerance=2, y_tolerance=3, use_text_flow=True)
+            words = _join_vertical_letters(page.extract_words(x_tolerance=2, y_tolerance=3, use_text_flow=True))
             # Keep the parser's reading order. Partition by lines, not character offsets.
             clean = [{"text": w["text"], "x0": w["x0"] - page.bbox[0],
                       "top": w["top"] - page.bbox[1],
@@ -55,7 +72,7 @@ def index_pdf(path: Path, source_id: str) -> dict:
                                  "text": " ".join(w["text"] for w in part)})
     return {"source_id": source_id, "sha256": digest(path.read_bytes()),
             "parser": f"pdfplumber/{pdfplumber.__version__}",
-            "reading_order": "pdf_content_stream",
+            "reading_order": "pdf_content_stream", "vertical_letters": "joined",
             "pages": pages, "passages": passages}
 
 
@@ -72,19 +89,22 @@ def locate_quote(index: dict, passage_id: str, quote: str) -> dict:
     if not page.get("anchors_supported", True):
         return {**result, "status": "unsupported_page_geometry"}
     words = page["words"][passage["word_start"]:passage["word_end"]]
-    haystack, mapping = _haystack(words)
-    hits = _find(needle, haystack)
+    haystack, mapping, glued = _haystack(words)
+    hits = _find(needle, haystack, mapping, glued)
     dehyphenated = False
     if not hits:
         # The source text as printed always wins; joining a line-end hyphen is a fallback.
-        joined, joined_mapping = _haystack(words, dehyphenate=True)
-        if joined != haystack and (joined_hits := _find(needle, joined)):
+        joined, joined_mapping, joined_glued = _haystack(words, dehyphenate=True)
+        if joined != haystack and (joined_hits := _find(needle, joined, joined_mapping, joined_glued)):
             hits, mapping, dehyphenated = joined_hits, joined_mapping, True
     if not hits:
         continued = _locate_continued(index, passage, needle)
         if continued is not None:
             return {**result, **continued, "page_width": page["width"], "page_height": page["height"],
                     "context": passage["text"], "source_sha256": index["sha256"]}
+        # The characters are there, but only inside longer words ("likely" in "unlikely").
+        if _find(needle, haystack) or _find(needle, _haystack(words, dehyphenate=True)[0]):
+            return {**result, "status": "partial_word"}
     if len(hits) != 1:
         return {**result, "status": "ambiguous" if hits else "unmatched"}
     start = hits[0]
@@ -107,8 +127,8 @@ def _locate_continued(index: dict, passage: dict, needle: str):
             words += [{**w, "page": number + 1} for w in following["words"][:220]]
     own = passage["word_end"] - passage["word_start"]
     for dehyphenate in (False, True):
-        haystack, mapping = _haystack(words, dehyphenate=dehyphenate)
-        hits = _find(needle, haystack)
+        haystack, mapping, glued = _haystack(words, dehyphenate=dehyphenate)
+        hits = _find(needle, haystack, mapping, glued)
         if not hits:
             continue
         if len(hits) != 1 or mapping[hits[0]] >= own:
@@ -146,9 +166,10 @@ def locate_anywhere(index: dict, quote: str) -> dict:
     result = {"quote": quote, "status": "unmatched", "page": None, "boxes": [], "passage_id": None}
     if len(normalize(quote)) < 8:
         return {**result, "status": "too_short"}
-    hits = {}
+    hits, partial = {}, False
     for passage in index["passages"]:
         found = locate_quote(index, passage["id"], quote)
+        partial = partial or found["status"] == "partial_word"
         if found["status"] == "ambiguous":
             # Two printed copies inside one window (e.g. a running head): record each copy.
             for copy in _each_hit(index, passage, quote):
@@ -158,7 +179,7 @@ def locate_anywhere(index: dict, quote: str) -> dict:
             box = found["boxes"][0]
             hits.setdefault((found["page"], round(box["x"]), round(box["y"])), found)
     if not hits:
-        return result
+        return {**result, "status": "partial_word"} if partial else result
     ordered = sorted(hits.values(), key=lambda h: (h["page"], h["boxes"][0]["y"], h["boxes"][0]["x"]))
     first = ordered[0]
     if len(ordered) == 1:
@@ -174,9 +195,9 @@ def _each_hit(index: dict, passage: dict, quote: str) -> list:
     needle = normalize(quote)
     page = index["pages"][passage["page"] - 1]
     words = page["words"][passage["word_start"]:passage["word_end"]]
-    haystack, mapping = _haystack(words)
+    haystack, mapping, glued = _haystack(words)
     out = []
-    for start in _find(needle, haystack):
+    for start in _find(needle, haystack, mapping, glued):
         lo, hi = mapping[start], mapping[start + len(needle) - 1]
         sub = {**passage, "id": passage["id"] + f"#{start}", "word_start": passage["word_start"] + lo,
                "word_end": passage["word_start"] + hi + 1}
@@ -198,16 +219,46 @@ def _line_end_hyphen(words: list, i: int) -> bool:
 
 
 def _haystack(words: list, dehyphenate: bool = False):
-    chars, mapping = [], []
+    """Normalized characters of the words, the word each character came from, and the words
+    whose end was joined to the next word (a line-end hyphen removed)."""
+    chars, mapping, glued = [], [], set()
     for i, word in enumerate(words):
         text = normalize(word["text"])
         if dehyphenate and _line_end_hyphen(words, i):
             text = text[:-1]
+            glued.add(i)
         for char in text:
             chars.append(char)
             mapping.append(i)
-    return "".join(chars), mapping
+    return "".join(chars), mapping, glued
 
 
-def _find(needle: str, haystack: str) -> list:
-    return [m.start() for m in re.finditer("(?=" + re.escape(needle) + ")", haystack)]
+def _attaching(char: str) -> bool:
+    """Scripts whose particles and endings are written onto the word: 생산성이, 向上した."""
+    return ("가" <= char <= "힣" or "ᄀ" <= char <= "ᇿ" or "㄰" <= char <= "㆏"
+            or "぀" <= char <= "ヿ" or "一" <= char <= "鿿")
+
+
+def _find(needle: str, haystack: str, mapping: list | None = None, glued: frozenset | set = frozenset()) -> list:
+    """Every place the normalized needle occurs. With `mapping`, only places that start and end on
+    a printed word boundary: "likely" inside "unlikely", "19%" inside "119%" or 효율적 inside
+    비효율적 is not the printed text (#30). Punctuation next to the cut ("time" in "time.") is
+    fine, and so is a Korean or Japanese ending left off at the end (생산성 in 생산성이)."""
+    starts = [m.start() for m in re.finditer("(?=" + re.escape(needle) + ")", haystack)]
+    if mapping is None:
+        return starts
+
+    def same_word(a, b):
+        return mapping[a] == mapping[b] or (mapping[b] == mapping[a] + 1 and mapping[a] in glued)
+
+    keep = []
+    for start in starts:
+        end = start + len(needle)
+        cut_front = (start > 0 and same_word(start - 1, start)
+                     and haystack[start - 1].isalnum() and needle[0].isalnum())
+        cut_back = (end < len(haystack) and same_word(end - 1, end)
+                    and haystack[end].isalnum() and needle[-1].isalnum()
+                    and not (_attaching(needle[-1]) and _attaching(haystack[end])))
+        if not (cut_front or cut_back):
+            keep.append(start)
+    return keep

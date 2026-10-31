@@ -480,3 +480,60 @@ def test_text_outside_page_scope_counts_as_unreadable(tmp_path):
     p.screen(sid, "include", "Include")
     with pytest.raises(ValueError, match="Late text"):
         w.prepare(p)
+
+
+def _pdf_lines(lines, rotated=None):
+    buf = io.BytesIO()
+    pdf = canvas.Canvas(buf)
+    for i, line in enumerate(lines):
+        pdf.drawString(80, 750 - 20 * i, line)
+    if rotated:
+        # arXiv prints its version stamp up the left margin.
+        pdf.saveState()
+        pdf.translate(30, 220)
+        pdf.rotate(90)
+        pdf.setFont("Times-Roman", 20)
+        pdf.drawString(0, 0, rotated)
+        pdf.restoreState()
+    pdf.showPage()
+    pdf.save()
+    return buf.getvalue()
+
+
+def test_part_of_a_printed_word_is_not_an_exact_match(tmp_path):
+    p = Project(tmp_path / "research").initialize()
+    sid = p.add_pdf(_pdf_lines(["The tool was ineffective in reducing review time.",
+                                "Completion time rose 119% in the AI condition.",
+                                "The effect is unlikely to primarily be a result of bias."]), "words.pdf")
+    index = p.index(sid)
+    passage = index["passages"][0]["id"]
+    for cut in ("effective in reducing review time", "19% in the AI condition", "likely to primarily be a"):
+        assert locate_quote(index, passage, cut)["status"] == "partial_word", cut
+    for whole in ("ineffective in reducing review time", "119% in the AI condition",
+                  "unlikely to primarily be a", "in reducing review time"):  # last: '.' after 'time' is fine
+        assert locate_quote(index, passage, whole)["status"] == "exact_normalized", whole
+    from deep_research.documents import locate_anywhere
+    assert locate_anywhere(index, "effective in reducing review time")["status"] == "partial_word"
+
+
+def test_word_boundary_rule_for_korean():
+    from deep_research.documents import _find, _haystack
+    words = [{"text": t} for t in ["업무", "처리가", "비효율적인", "것으로", "나타났다.", "생산성이", "높았다"]]
+    haystack, mapping, glued = _haystack(words)
+    def found(quote):
+        return bool(_find(normalize(quote), haystack, mapping, glued))
+    assert not found("효율적인 것으로 나타났다")   # 비- 가 잘린 반대 뜻
+    assert found("비효율적인 것으로 나타났다")
+    assert found("업무 처리가 비효율적")          # 끝에서 어미가 빠진 것은 허용
+    assert found("생산성")
+    assert not found("산성이 높았다")
+
+
+def test_rotated_margin_stamp_is_one_readable_line(tmp_path):
+    p = Project(tmp_path / "research").initialize()
+    sid = p.add_pdf(_pdf_lines(["Body text of the first page."], rotated="arXiv:2507.09089v2 [cs.AI] 25 Jul 2025"), "stamp.pdf")
+    index = p.index(sid)
+    text = " ".join(x["text"] for x in index["passages"])
+    assert "arXiv:2507.09089v2 [cs.AI] 25 Jul 2025" in text
+    stamp = locate_quote(index, index["passages"][0]["id"], "arXiv:2507.09089v2 [cs.AI] 25 Jul 2025")
+    assert stamp["status"] == "exact_normalized"

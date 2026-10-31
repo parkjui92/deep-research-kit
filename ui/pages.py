@@ -25,7 +25,8 @@ SCREEN_CRITERION = {"inclusion": "포함 기준", "exclusion": "제외 기준", 
 LOCATED = {"exact_normalized", "multiple"}
 SCREEN_QUOTE_STATUS = {"unmatched": "PDF 글자와 다른 데가 있음 — 줄바꿈·하이픈·특수부호(—, ’) 앞뒤에서 끊어 짧게 적어 보세요",
                        "too_short": "구절이 너무 짧음 — 낱말 셋 이상",
-                       "unsupported_page_geometry": "회전·잘린 쪽이라 위치를 그릴 수 없음"}
+                       "unsupported_page_geometry": "회전·잘린 쪽이라 위치를 그릴 수 없음",
+                       "partial_word": "원문 단어의 일부만 맞음 — 앞뒤 낱말을 빠짐없이 적으세요(예: unlikely를 likely로 자르지 않기)"}
 
 
 def _quote_summary(quotes):
