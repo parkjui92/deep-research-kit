@@ -109,7 +109,7 @@ def openalex_search(query, limit=20, year_from=None):
                               venue=(loc.get("source") or {}).get("display_name", "") if loc else "",
                               doi=w.get("doi") or "", url=(w.get("doi") or w.get("id") or ""),
                               pdf_url=best.get("pdf_url") or "", oa=bool((w.get("open_access") or {}).get("is_oa")),
-                              pdf_urls=[x["pdf_url"] for x in w.get("locations") or [] if (x or {}).get("pdf_url")],
+                              pdf_urls=[x["pdf_url"] for x in w.get("locations") or [] if (x or {}).get("pdf_url") and x.get("is_oa")],
                               cited_by=w.get("cited_by_count"), abstract=abstract, external_id=w.get("id", "")))
     return payload.get("meta", {}).get("count", len(out)), out
 

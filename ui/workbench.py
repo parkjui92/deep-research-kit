@@ -411,8 +411,16 @@ def missing_pdfs_panel(project):
                                    help="브라우저가 PDF를 저장하는 폴더. macOS는 처음에 이 폴더 접근을 허용할지 물을 수 있습니다.")
             state = st.session_state.get("wb_watch")
             if not state or state["folder"] != folder:
-                st.session_state["wb_watch"] = {"folder": folder, "since": time.time(), "seen": set(), "linked": [], "unmatched": []}
-            _watch_downloads(project)
+                # What is already in the folder is not a new download, whatever its date says.
+                try:
+                    known = acquire.pdfs_in(folder)
+                except OSError as exc:
+                    st.warning(f"이 폴더를 읽지 못했습니다({type(exc).__name__}). 경로를 확인하세요. "
+                               "macOS는 시스템 설정 → 개인정보 보호 및 보안 → 파일 및 폴더에서 터미널의 다운로드 폴더 접근을 허용해야 할 수 있습니다.")
+                    known = None
+                st.session_state["wb_watch"] = {"folder": folder, "since": time.time(), "seen": known, "linked": [], "unmatched": []} if known is not None else None
+            if st.session_state.get("wb_watch"):
+                _watch_downloads(project)
         else:
             st.session_state.pop("wb_watch", None)
         _manual_link(project, pending)
@@ -428,7 +436,12 @@ def _watch_downloads(project):
         st.caption(f"{WATCH_MINUTES}분이 지나 지켜보기를 멈췄습니다. 다시 하려면 껐다 켜세요.")
         return
     changed = False
-    for path in acquire.new_downloads(state["folder"], state["since"], state["seen"]):
+    try:
+        arrived = acquire.new_downloads(state["folder"], state["seen"])
+    except OSError as exc:
+        st.warning(f"다운로드 폴더를 읽지 못해 지켜보기를 멈췄습니다({type(exc).__name__}). 경로·접근 권한을 확인하고 다시 켜세요.")
+        return
+    for path in arrived:
         state["seen"].add(str(path))
         data = acquire.read_download(path)
         if data is None:
@@ -445,12 +458,17 @@ def _watch_downloads(project):
     for name in list(state["unmatched"]):
         left, right = st.columns([5, 1.4])
         left.caption(f"맞는 문헌을 찾지 못한 새 PDF · {ui.md(Path(name).name)}")
-        if right.button("그래도 등록", key="wb_watch_add_" + name):
-            data = acquire.read_download(name)
-            if data:
-                acquire.register(project, data, Path(name).name)
+        if right.button("그래도 등록", key="wb_watch_add_" + flow.fingerprint(name)[:12]):
             state["unmatched"].remove(name)
-            changed = True
+            data = acquire.read_download(name)
+            try:
+                if data is None:
+                    raise ValueError("PDF로 읽을 수 없는 파일입니다.")
+                acquire.register(project, data, Path(name).name)
+            except ValueError as exc:
+                st.error(f"{ui.md(Path(name).name)}: {ui.md(str(exc))}")
+            else:
+                changed = True
     if changed:
         st.rerun()
 
@@ -464,13 +482,14 @@ def _manual_link(project, pending):
         return
     with st.expander("올린 PDF와 직접 묶기"):
         a, b = st.columns(2)
-        cand = a.selectbox("PDF를 기다리는 문헌", range(len(pending)), key="wb_link_cand",
-                           format_func=lambda i: ui.short(pending[i]["title"], 60))
+        keys = {(c.get("doi") or c.get("title") or ""): c for c in pending}  # a stable value, not a list position
+        picked = a.selectbox("PDF를 기다리는 문헌", list(keys), key="wb_link_cand",
+                             format_func=lambda k: ui.short(keys[k]["title"], 60))
         source_id = b.selectbox("등록된 PDF", [s["id"] for s in sources], key="wb_link_src",
                                 format_func=lambda sid: ui.short(next(s["title"] for s in sources if s["id"] == sid), 60))
-        if st.button("묶기", key="wb_link_btn"):
-            acquire.link(project, source_id, pending[cand], "직접")
-            _say(f"「{ui.md(ui.short(pending[cand]['title'], 40))}」과 묶었습니다.")
+        if st.button("묶기", key="wb_link_btn", disabled=picked not in keys):
+            acquire.link(project, source_id, keys[picked], "직접")
+            _say(f"「{ui.md(ui.short(keys[picked]['title'], 40))}」과 묶었습니다.")
             st.rerun()
 
 
