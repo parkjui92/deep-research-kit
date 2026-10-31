@@ -10,3 +10,6 @@ example-cache/
 dist/
 *.log
 .DS_Store
+# Streamlit "Install skills"가 저장소 안에 만드는 .venv 링크(#11). 커밋하지 않는다.
+.agents/
+.claude/skills/developing-with-streamlit
