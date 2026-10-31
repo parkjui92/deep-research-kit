@@ -57,7 +57,7 @@ uv run --frozen streamlit run app.py --server.address 127.0.0.1
 - **Windows에서 「애플리케이션 제어 정책에서 이 파일을 차단했습니다」**(`DLL load failed` 등): 설치가 실패한 것이 아니라 Windows 보안 정책(스마트 앱 컨트롤이나 기관의 응용 프로그램 제어)이 내려받은 라이브러리 파일을 막은 것일 수 있습니다. 이벤트 뷰어 → 응용 프로그램 및 서비스 로그 → Microsoft → Windows → CodeIntegrity → Operational에 이벤트 3077 같은 차단 기록이 있는지 보면 구분됩니다. 보안 정책을 직접 끄지 말고 기관 관리자에게 문의하세요. 한 PC에서는 막힌 라이브러리의 다른 판을 쓴 별도 환경(예: `uv run --frozen --with "pandas==3.0.1" streamlit run app.py --server.address 127.0.0.1`)에서 동작한 사례가 있으나, 모든 환경의 해법으로 확인된 것은 아닙니다.
 - **Claude 데스크톱 앱만 쓰는 경우**: 데스크톱 앱의 로그인은 이 앱이 실행하는 `claude` 명령으로 넘어오지 않습니다. 「AI로 추출」을 쓰려면 일반 터미널에서 `claude`를 열어 `/login` 하거나, 웹 AI에 요청문을 붙여 넣는 경로를 씁니다.
 
-1. 왼쪽에서 프로젝트를 만듭니다. **공통 사례 만들기**는 실제 논문 3편을 공식 자료원에서 내려받습니다(약 20초, 적은 제목이 그대로 쓰입니다). 최초 다운로드가 막히면 아래의 수업 전 준비를 사용하세요. 단계마다 화면 맨 위 「지금 할 일」 카드가 그 단계에서 할 일과 다음 단계를 알려 줍니다.
+1. 왼쪽에서 프로젝트를 만듭니다. **공통 사례 만들기**는 실제 논문 3편을 공식 자료원에서 내려받습니다(약 20초, 적은 제목이 그대로 쓰입니다). 다운로드가 막히면 화면 안내대로 공식 PDF를 `example-cache/`에 넣고 다시 만드세요. 단계마다 화면 맨 위 「지금 할 일」 카드가 그 단계에서 할 일과 다음 단계를 알려 줍니다.
 2. 조사 목적·범위·포함/제외 기준·추출 항목을 저장합니다.
 3. PDF를 등록하고, 원문을 보면서 포함/제외/보류와 이유(필수)를 남깁니다. 판단의 근거가 된 원문 문장을 「근거 구절」에 붙이면 PDF에서 그 자리를 찾아 강조합니다. 같은 연구의 여러 보고서는 같은 연구 ID를 지정합니다.
 4. 3단계에서 **AI를 돌릴 방법을 고릅니다.** ① Claude Code(앤트로픽의 터미널 AI 도구)가 있으면 「새 추출 실행 만들기」 → 화면의 `/deep-research` 요청문을 Claude Code에 붙여 넣기 → 「저장된 응답 새로 읽기」. ② 없으면 공통 사례에 한해 「수업용 예시 응답 불러오기」(새 AI 실행이 아니며, 이미 저장한 선별 판단은 바꾸지 않음). ③ 다른 사람이 만든 응답 JSON을 올릴 수도 있습니다.
@@ -70,24 +70,6 @@ uv run --frozen streamlit run app.py --server.address 127.0.0.1
 스킬 실행에는 사용 중인 Claude Code 계정의 이용 조건과 사용량이 적용됩니다. UI 자체는 AI를 내장하지 않습니다. Claude Code가 없으면 다른 에이전트에 요청 JSON을 전달하거나 선택 API 경로를 사용할 수 있습니다. AI를 사용할 수 없는 경우 PDF 검토와 기존 결과 확인은 가능하지만 새로운 AI 추출을 실행한 것으로 표시하지 않습니다.
 
 수업의 기본 읽기 범위는 **각 문헌의 첫 20쪽**입니다. 긴 부록의 처리 시간과 AI 사용량을 줄이기 위한 명시적 범위이며, 문헌 전체를 읽었다는 뜻이 아닙니다. 설계에서 쪽수 제한을 0으로 바꾸면 전체를 읽습니다. 각 근거와 보고서에 실제 읽기 범위를 보존합니다.
-
-## 수업 전 공통 사례 준비
-
-```sh
-uv run python -m deep_research.examples --project projects/class-example
-```
-
-실제 원문과 해시·출처·버전·이용 조건은 `projects/class-example/example-manifest.json`에 기록됩니다. `example-cache/`의 PDF를 미리 준비하면 같은 자료를 네트워크 없이 다시 등록할 수 있습니다. 준비에 실패한 자료는 오류로 표시되며, 내려받은 자료는 보존됩니다.
-
-| 자료 | 사용하는 버전 | 원문 이용 조건 |
-|---|---|---|
-| Becker et al., *Measuring the Impact of Early-2025 AI…* | arXiv 2507.09089 v2, 2025 | CC BY 4.0 |
-| Si, Hashimoto & Yang, *The Ideation-Execution Gap…* | arXiv 2506.20803 v1, 2025 | CC BY 4.0 |
-| Brodeur et al., *AI-assisted teams outperform…* | PNAS 출판본, 2026 | CC BY-NC-ND 4.0 |
-
-이는 수업용으로 고정한 자료 묶음이며 특정 주제의 포괄적인 최신 문헌 목록은 아닙니다. PDF 원본은 코드의 Apache 라이선스에 포함되지 않습니다. 재배포 시 각 문헌의 이용 조건과 저작자·출처·버전을 유지해야 합니다.
-
-공통 사례를 처음 살펴볼 때는 **3 · 원문 추출 → ② 수업용 예시 응답 불러오기**를 사용할 수 있습니다. 12개 추출값을 원문과 대조해 가져오며 전부 미검토 상태입니다. 이는 새 AI 실행이 아닙니다. 같은 PDF와 기본 설계에서만 쓸 수 있고(설계를 바꿨으면 화면의 「기본 설계로 되돌리고 예시 불러오기」), 학생이 지침을 고친 다음에는 스킬이나 API로 새로 추출해야 합니다. 이미 저장한 선별 판단·이유·근거 구절은 바꾸지 않고, 아직 판단하지 않은 문헌만 포함으로 둡니다. 응답 없는 빈 실행이 같은 문헌으로 있으면 새 실행을 만들지 않고 그 실행을 채웁니다.
 
 ## 내 연구에 쓰기
 
@@ -158,19 +140,18 @@ uv run drk --project projects/my-research api-synthesize RUN_ID
 
 2026년 10월 31일, 수업 실습과 각자의 문헌조사에서 이 킷을 직접 설치해 쓴 분들이 이슈와 수정 PR을 보냈습니다. 재현 절차와 코드 위치까지 적어 준 덕분에 아래가 나아졌습니다.
 
-### 협업으로 좋아진 점
+### 개선된 점
 
-| 영역 | 나아진 점 | 관련 이슈·PR |
+| 영역 | 핵심 | 관련 이슈·PR |
 |---|---|---|
-| 설치·첫 실행 | Python 3.12로 고정해 최신 Python에서 설치가 멈추지 않음. 실행만으로 `uv.lock`이 바뀌지 않음. 첫 실행의 `Email:` 대기와 Streamlit 스킬 설치 팝업을 없앰. PATH에 없거나 방금 설치한 uv도 찾음. Windows 보안 정책 차단을 설치 실패와 구분하는 안내 | [#1](https://github.com/parkjui92/deep-research-kit/issues/1) [#2](https://github.com/parkjui92/deep-research-kit/pull/2) [#9](https://github.com/parkjui92/deep-research-kit/issues/9) [#10](https://github.com/parkjui92/deep-research-kit/issues/10) [#11](https://github.com/parkjui92/deep-research-kit/issues/11) [#12](https://github.com/parkjui92/deep-research-kit/issues/12) [#23](https://github.com/parkjui92/deep-research-kit/issues/23) [#26](https://github.com/parkjui92/deep-research-kit/issues/26) |
-| AI 실행의 안전과 신뢰 | 「AI로 추출」의 Claude Code 권한을 원문 읽기·해당 실행의 초안 쓰기·`drk` 명령으로 줄이고, 실행 중 사람의 검토 기록이 바뀌면 되돌림. 사용자 설정 변수 유지, 사용량을 쓰지 않는 상태 확인, 같은 프로젝트의 동시 실행 방지. Windows npm 설치본(`claude.cmd`)에서도 요청문과 옵션이 잘리지 않음. 저장된 결과로 성공을 판정하고 한글 Windows 출력도 UTF-8로 읽음 | [#3](https://github.com/parkjui92/deep-research-kit/issues/3) [#6](https://github.com/parkjui92/deep-research-kit/issues/6) [#7](https://github.com/parkjui92/deep-research-kit/pull/7) [#13](https://github.com/parkjui92/deep-research-kit/pull/13) [#24](https://github.com/parkjui92/deep-research-kit/issues/24) [#25](https://github.com/parkjui92/deep-research-kit/issues/25) [#32](https://github.com/parkjui92/deep-research-kit/issues/32) |
-| 원문 대조의 정확도 | 쪽·구간 경계를 넘는 인용도 위치를 찾음. 단어 일부만 맞는 인용(`unlikely`→`likely`)은 일치로 보지 않음. 여백의 세로 arXiv 판·날짜 표기를 읽음. 글자 없는 스캔본은 AI 실행 전에 막음. 회전·CropBox 쪽은 채택할 수 없는 이유를 보여 줌 | [#4](https://github.com/parkjui92/deep-research-kit/issues/4) [#5](https://github.com/parkjui92/deep-research-kit/issues/5) [#8](https://github.com/parkjui92/deep-research-kit/pull/8) [#14](https://github.com/parkjui92/deep-research-kit/issues/14) [#15](https://github.com/parkjui92/deep-research-kit/pull/15) [#22](https://github.com/parkjui92/deep-research-kit/issues/22) [#30](https://github.com/parkjui92/deep-research-kit/issues/30) |
-| 사람의 검토가 결과까지 | 고친 값이 「채택」 저장이나 종합 요청에서 AI 원래 값으로 돌아가지 않음. 화면에 보이는 글자와 CSV·보고서·종합으로 나가는 값이 같음(숨김 HTML·`$` 수식 해석 차단) | [#21](https://github.com/parkjui92/deep-research-kit/issues/21) [#31](https://github.com/parkjui92/deep-research-kit/issues/31) [#34](https://github.com/parkjui92/deep-research-kit/issues/34) |
-| 검색 기록의 재현성 | arXiv는 검색어의 모든 낱말이 들어간 문헌만 찾고, 발행연도는 검색 서버에 필터로 보냄. 검색 기록이 화면에 보인 목록과 같음 | [#33](https://github.com/parkjui92/deep-research-kit/issues/33) |
-| 원문 대조와 검토의 편의 | 한 칸의 발췌를 PDF에 한꺼번에 강조하고 여러 쪽을 함께 보여 줌. 항목마다 추출 분량(핵심 1문장·요약·상세·수치만·직접 입력)을 고르면 문장마다 근거 발췌를 요구. 영어 원문 발췌 아래에 AI 참고 번역을 원문 대조와 분리해 표시 | [#16](https://github.com/parkjui92/deep-research-kit/issues/16) [#28](https://github.com/parkjui92/deep-research-kit/issues/28) [#29](https://github.com/parkjui92/deep-research-kit/issues/29) |
-| 처음 쓰는 사람의 안내 | 「단계별 보기」 전환 오류 해결. 칸 상세에 AI 메모와 읽기 범위 표시. 조사 질문이 예시 그대로면 추출 전에 알리고 문헌 수 상한을 보여 줌. 첫 화면에 흐름과 결과물, 판정 폼에 판정 기준과 입력 예시 | [#17](https://github.com/parkjui92/deep-research-kit/issues/17) [#18](https://github.com/parkjui92/deep-research-kit/issues/18) [#19](https://github.com/parkjui92/deep-research-kit/issues/19) [#20](https://github.com/parkjui92/deep-research-kit/issues/20) |
-
-다음 판에서 설계를 검토할 제안: 스캔본 OCR([#27](https://github.com/parkjui92/deep-research-kit/issues/27), 설치 부담과 'OCR 글자 일치'를 따로 다루는 문제로 보류), 내 질문과 겹치는 문구 표시·정렬([#17](https://github.com/parkjui92/deep-research-kit/issues/17)), AI가 인용하지 않은 관련 구절 후보([#28](https://github.com/parkjui92/deep-research-kit/issues/28)의 일부).
+| 설치·첫 실행 | Python 3.12 고정, 실행해도 `uv.lock` 그대로, 첫 실행 멈춤·팝업 제거, PATH 밖의 uv도 찾음 | [#1](https://github.com/parkjui92/deep-research-kit/issues/1) [#2](https://github.com/parkjui92/deep-research-kit/pull/2) [#9](https://github.com/parkjui92/deep-research-kit/issues/9) [#10](https://github.com/parkjui92/deep-research-kit/issues/10) [#11](https://github.com/parkjui92/deep-research-kit/issues/11) [#12](https://github.com/parkjui92/deep-research-kit/issues/12) [#23](https://github.com/parkjui92/deep-research-kit/issues/23) [#26](https://github.com/parkjui92/deep-research-kit/issues/26) |
+| AI 실행의 안전 | Claude Code 권한 축소·검토 기록 보호, Windows `claude.cmd`·한글 출력 대응, 저장된 결과로 성공 판정 | [#3](https://github.com/parkjui92/deep-research-kit/issues/3) [#6](https://github.com/parkjui92/deep-research-kit/issues/6) [#7](https://github.com/parkjui92/deep-research-kit/pull/7) [#13](https://github.com/parkjui92/deep-research-kit/pull/13) [#24](https://github.com/parkjui92/deep-research-kit/issues/24) [#25](https://github.com/parkjui92/deep-research-kit/issues/25) [#32](https://github.com/parkjui92/deep-research-kit/issues/32) |
+| 원문 대조의 정확도 | 경계를 넘는 인용 찾기, 단어 일부 일치 차단, 세로 arXiv 표기 읽기, 스캔본·회전 쪽 안내 | [#4](https://github.com/parkjui92/deep-research-kit/issues/4) [#5](https://github.com/parkjui92/deep-research-kit/issues/5) [#8](https://github.com/parkjui92/deep-research-kit/pull/8) [#14](https://github.com/parkjui92/deep-research-kit/issues/14) [#15](https://github.com/parkjui92/deep-research-kit/pull/15) [#22](https://github.com/parkjui92/deep-research-kit/issues/22) [#30](https://github.com/parkjui92/deep-research-kit/issues/30) |
+| 검토 결과 보존 | 고친 값이 종합까지 유지, 화면에 보이는 값과 내보내는 값이 같음 | [#21](https://github.com/parkjui92/deep-research-kit/issues/21) [#31](https://github.com/parkjui92/deep-research-kit/issues/31) [#34](https://github.com/parkjui92/deep-research-kit/issues/34) |
+| 검토 편의 | 한 칸의 발췌를 PDF에 모두 강조, 항목별 추출 분량, 영어 발췌의 참고 번역 | [#16](https://github.com/parkjui92/deep-research-kit/issues/16) [#28](https://github.com/parkjui92/deep-research-kit/issues/28) [#29](https://github.com/parkjui92/deep-research-kit/issues/29) |
+| 문헌 수집 | 검색 기록이 화면 목록과 같음, 공개 PDF 자동 받기 확대, 내 브라우저로 받은 PDF 자동 등록·묶기 | [#33](https://github.com/parkjui92/deep-research-kit/issues/33) |
+| 처음 쓰는 사람의 안내 | 단계별 보기 오류 해결, 추출 메모·읽기 범위 표시, 예시 질문 알림, 첫 화면에 흐름과 결과물 | [#17](https://github.com/parkjui92/deep-research-kit/issues/17) [#18](https://github.com/parkjui92/deep-research-kit/issues/18) [#19](https://github.com/parkjui92/deep-research-kit/issues/19) [#20](https://github.com/parkjui92/deep-research-kit/issues/20) |
+| 남은 제안 | 스캔본 OCR(설치 부담으로 보류), 내 질문 기준으로 먼저 볼 칸 표시·정렬 | [#27](https://github.com/parkjui92/deep-research-kit/issues/27) [#17](https://github.com/parkjui92/deep-research-kit/issues/17) |
 
 이슈와 PR로 기여한 분들은 저장소의 [Contributors](https://github.com/parkjui92/deep-research-kit/graphs/contributors)에 올라 있습니다.
 
