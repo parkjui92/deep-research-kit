@@ -169,20 +169,7 @@ uv run drk --project projects/my-research api-synthesize RUN_ID
 
 다음 판에서 설계를 검토할 제안: 원문 발췌 번역 보기([#16](https://github.com/parkjui92/deep-research-kit/issues/16)), 스캔본 OCR([#27](https://github.com/parkjui92/deep-research-kit/issues/27)), 한 칸의 근거 모두 보기([#28](https://github.com/parkjui92/deep-research-kit/issues/28)), 항목별 추출 분량([#29](https://github.com/parkjui92/deep-research-kit/issues/29)), 내 질문과 겹치는 문구 표시·정렬([#17](https://github.com/parkjui92/deep-research-kit/issues/17)).
 
-### 기여자
-
-| 기여자 | 기여 |
-|---|---|
-| [daniel898865-alt](https://github.com/daniel898865-alt) | 코드: Python 버전 고정, AI 실행 권한 축소·검토 기록 보호, 스캔본 막기, Claude Code 연동, 경계를 넘는 인용 찾기(PR #2 #7 #8 #13 #15). 이슈 #1 #3 #4 #5 #6 |
-| [nackboom](https://github.com/nackboom) | 이슈 #9 #10 #11 #12, 데스크톱 앱 로그인 재현(#6) |
-| [katej5](https://github.com/katej5) | 이슈 #14 |
-| [hyeon0](https://github.com/hyeon0) | 이슈 #16 |
-| [LoveEvaLee](https://github.com/LoveEvaLee) | 이슈 #17 #18 |
-| [yunzecho-eng](https://github.com/yunzecho-eng) | 이슈 #19 #20 #21 #22 #23 |
-| [ypte98-prog](https://github.com/ypte98-prog) | 이슈 #24 #25 |
-| [daehyun5oh](https://github.com/daehyun5oh) | 이슈 #26 |
-| [inin0801-git](https://github.com/inin0801-git) | 이슈 #27 #28 #29 |
-| [morins](https://github.com/morins) | 이슈 #30 #31 #32 #33 #34, 재현 보강(#9 #11 #25) |
+이슈와 PR로 기여한 분들은 저장소의 [Contributors](https://github.com/parkjui92/deep-research-kit/graphs/contributors)에 올라 있습니다.
 
 이슈와 PR은 언제든 환영합니다. 재현 순서, 기대한 결과와 실제 결과, 관련 코드 위치를 적어 주면 가장 빨리 반영됩니다.
 
