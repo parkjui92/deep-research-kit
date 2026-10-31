@@ -51,6 +51,14 @@ toolbarMode = "minimal"
 maxUploadSize = 100
 address = "127.0.0.1"
 enableStaticServing = true
+# 처음 실행할 때 터미널이 "Email:" 입력을 기다리며 멈춘 것처럼 보이지 않게 한다(#10).
+# headless와 달리 브라우저 자동 열림은 그대로 둔다.
+showEmailPrompt = false
+
+[logger]
+# Streamlit 자체의 "Help agents write better apps" 안내를 끈다. 한글 Windows에서
+# Install을 누르면 cp949 오류 팝업이 뜬다(#11). 주소 안내는 시작 스크립트가 출력한다.
+hideWelcomeMessage = true
 
 [browser]
 gatherUsageStats = false
