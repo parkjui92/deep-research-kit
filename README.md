@@ -38,7 +38,7 @@
 
 ## 시작하기
 
-Python 3.11 이상과 [uv](https://docs.astral.sh/uv/getting-started/installation/)가 필요합니다. `uv`는 필요한 Python이 없으면 관리형 Python을 설치할 수 있습니다. 처음 설치할 때 인터넷이 필요합니다.
+Python 3.11 이상과 [uv](https://docs.astral.sh/uv/getting-started/installation/)가 필요합니다. `uv`는 필요한 Python이 없으면 관리형 Python을 설치할 수 있습니다. 저장소의 `.python-version`에 검증된 버전(3.12)이 지정되어 있어, `uv`가 아직 의존성 휠이 없는 최신 Python을 고르지 않습니다. 처음 설치할 때 인터넷이 필요합니다.
 
 GitHub에서 이 저장소를 fork/clone하거나 ZIP을 풀고, **저장소 폴더의 터미널**에서 실행하세요.
 
