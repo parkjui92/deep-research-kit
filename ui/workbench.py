@@ -461,7 +461,10 @@ def _extract_popover(project, runs, included, config):
                     st.rerun()
         with st.expander("③ 내 컴퓨터에 Claude Code 설치하기 · 자세히"):
             st.markdown("Claude Code는 앤트로픽의 터미널 AI 도구입니다. 설치 뒤 터미널에서 `claude`를 실행해 로그인하면, 이 버튼이 바로 실행으로 바뀝니다. "
-                        "[설치 안내](https://docs.anthropic.com/claude-code) · 쓰던 Claude 계정의 사용량이 적용됩니다.")
+                        "[설치 안내](https://docs.anthropic.com/claude-code) · 쓰던 Claude 계정의 사용량이 적용됩니다.  \n"
+                        "Claude 데스크톱 앱에만 로그인했다면 여기서는 로그인 안 된 것으로 나옵니다. 데스크톱 앱의 로그인은 "
+                        "이 앱이 실행하는 `claude` 명령으로 넘어오지 않으니, 일반 터미널에서 `claude`를 한 번 열어 /login 하세요. "
+                        "그게 어렵다면 위 **②** 웹 AI 경로를 쓰면 됩니다.")
             if st.button("다시 확인", key="wb_cc_recheck"):
                 st.session_state.pop("cc_status", None)
                 st.rerun()

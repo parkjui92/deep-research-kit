@@ -272,7 +272,8 @@ def parse_bibtex(text):
 # for how Claude Code runs on this machine is kept.
 CLAUDE_USER_SETTINGS = {"CLAUDE_CONFIG_DIR", "CLAUDE_CODE_GIT_BASH_PATH", "CLAUDE_CODE_USE_BEDROCK",
                         "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_SKIP_BEDROCK_AUTH", "CLAUDE_CODE_SKIP_VERTEX_AUTH"}
-LOGIN_HINT = "Claude Code에 로그인돼 있지 않습니다. 터미널에서 `claude`를 열어 /login 한 뒤 「③ Claude Code 설치하기」의 「다시 확인」을 누르세요."
+LOGIN_HINT = ("Claude Code에 로그인돼 있지 않습니다. 터미널에서 `claude`를 열어 /login 한 뒤 「③ Claude Code 설치하기」의 「다시 확인」을 누르세요. "
+              "데스크톱 앱의 로그인은 여기로 넘어오지 않으니 일반 터미널에서 따로 로그인해야 합니다. 어렵다면 ② 웹 AI 경로를 쓰세요.")
 
 
 def claude_env():
@@ -392,7 +393,8 @@ def run_claude_code(project, run_id, kind="extraction", timeout=1800):
         with agent_lock(project):
             result = subprocess.run([exe, "-p", prompt, "--output-format", "text", "--allowedTools", *agent_tools(project, run_id),
                                      "--add-dir", str(project.root.resolve())],
-                                    cwd=root, capture_output=True, text=True, timeout=timeout, env=env)
+                                    cwd=root, capture_output=True, text=True, timeout=timeout, env=env,
+                                    stdin=subprocess.DEVNULL)
     except Timeout:
         raise ValueError("이 프로젝트에서 AI 실행이 이미 진행 중입니다. 끝난 뒤 「저장된 응답 새로 읽기」로 결과를 확인하세요.") from None
     except subprocess.TimeoutExpired:
