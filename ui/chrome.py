@@ -244,18 +244,52 @@ def stage_status(project, current: str) -> dict:
     return {s: "current" if s == current else ("done" if done[s] else "todo") for s in STAGES}
 
 
-def show_pdf(project, source_id, locators=None, page=1, identity="source", caption=None):
+MAX_PAGES_AT_ONCE = 6
+
+
+def pdf_view(locators, focus=0, page=1):
+    """What the PDF pane draws for one value: every quote's boxes at once, on every page they are
+    on, scrolled to the quote the person picked (#28). A value with quotes on many pages draws
+    only the picked quote's pages so a long PDF stays quick."""
+    locators = locators or []
+    boxes = sorted(({**box, "quote": i} for i, loc in enumerate(locators) for box in loc["boxes"]),
+                   key=lambda b: (b["page"], b["y"], b["x"]))
+    pages = sorted({b["page"] for b in boxes} | {loc["page"] for loc in locators if loc.get("page")}) or [page]
+    if len(pages) > MAX_PAGES_AT_ONCE and 0 <= focus < len(locators):
+        picked = locators[focus]
+        pages = sorted({b["page"] for b in picked["boxes"]} | ({picked["page"]} if picked.get("page") else set())) or [page]
+        boxes = [b for b in boxes if b["page"] in pages]
+    target = next((i for i, b in enumerate(boxes, 1) if b["quote"] == focus), None)
+    focus_page = locators[focus]["page"] if 0 <= focus < len(locators) and locators[focus].get("page") else pages[0]
+    options = {"scroll_to_annotation": target} if target else {"scroll_to_page": focus_page}
+    boxes = [{k: v for k, v in b.items() if k != "quote"} | {"id": f"box-{i}"} for i, b in enumerate(boxes, 1)]
+    return {"pages": pages, "boxes": boxes, "options": options}
+
+
+def quote_html(locator, number=None) -> str:
+    """One quote as printed, the line under it, and the model's reference translation if any.
+    The translation is shown apart and marked: it was never matched against the PDF (#16)."""
+    head = f"발췌 {number} · " if number else ""
+    out = (f'<div class="drk-quote">{h(locator["quote"])}</div>'
+           f'<div class="drk-meta">{h(head + locator_meta(locator))}</div>')
+    if locator.get("translation"):
+        out += f'<div class="drk-translation">참고 번역(AI · 원문 대조 안 함) · {h(locator["translation"])}</div>'
+    return out
+
+
+def evidence_caption(locators) -> str:
+    pages = sorted({loc["page"] for loc in locators if loc.get("page")})
+    where = f" 발췌 {len(locators)}개를 모두 표시합니다(PDF {', '.join(map(str, pages))}쪽)." if len(locators) > 1 else ""
+    return "주황 테두리 = AI가 이 값을 뽑아낸 원문 문장." + where + " 자리가 맞다는 뜻이지 값이 옳다는 뜻은 아닙니다."
+
+
+def show_pdf(project, source_id, locators=None, page=1, identity="source", caption=None, focus=0):
     project.index(source_id)
     data = (project.source_dir(source_id) / "original.pdf").read_bytes()
-    boxes = []
-    for locator in locators or []:
-        for box in locator["boxes"]:
-            boxes.append({**box, "id": f"box-{len(boxes) + 1}"})
-    boxes.sort(key=lambda b: (b["page"], b["y"], b["x"]))
-    key = flow.fingerprint([source_id, identity, page, boxes])[:20]
-    options = {"scroll_to_annotation": 1} if boxes else {"scroll_to_page": page}
+    view = pdf_view(locators, focus, page)
+    key = flow.fingerprint([source_id, identity, view])[:20]
     zoom = st.slider("원문 확대", 0.8, 2.5, 1.0, 0.1, key="zoom-" + source_id)
-    boxes = [{**box, "color": "#F59E0B"} for box in boxes]
-    pdf_viewer(data, height=680, annotations=boxes, render_text=True, pages_to_render=[page],
-               zoom_level=zoom, annotation_outline_size=2, key="pdf-" + key, **options)
+    boxes = [{**box, "color": "#F59E0B"} for box in view["boxes"]]
+    pdf_viewer(data, height=680, annotations=boxes, render_text=True, pages_to_render=view["pages"],
+               zoom_level=zoom, annotation_outline_size=2, key="pdf-" + key, **view["options"])
     st.caption(caption or "실제 원본 PDF · 쪽수는 파일의 첫 페이지부터 셉니다. 주황 테두리는 발췌 문자열의 위치이며, 뜻을 뒷받침하는지는 사람이 읽고 판단합니다.")

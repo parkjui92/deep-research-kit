@@ -158,11 +158,13 @@ def load_reference(project):
         rows = []
         for row in doc["rows"]:
             quotes = []
-            for quote in row["quotes"]:
+            for item in row["quotes"]:
+                # A quote is the printed text, optionally with a prepared reference translation (#16).
+                quote, ko = (item, "") if isinstance(item, str) else (item["quote"], item.get("ko", ""))
                 passage = next((p for p in req["passages"] if locate_quote(index, p["id"], quote)["status"] == "exact_normalized"), None)
                 if passage is None:
                     raise ValueError(f"기준 예시 원문 위치를 찾지 못했습니다: {doc['key']} / {row['field_id']}")
-                quotes.append({"passage_id": passage["id"], "quote": quote})
+                quotes.append({"passage_id": passage["id"], "quote": quote, **({"ko": ko} if ko else {})})
             rows.append({"source_id": source["id"], "field_id": row["field_id"],
                          "value": row["value"], "quotes": quotes, "note": fixture["notice"]})
         import_extraction(project, run_id, {"request_id": req["request_id"], "rows": rows,

@@ -21,9 +21,14 @@ quote는 지정한 passage_id 안에 실제 존재하는 연속 문구여야 합
 인용할 문장이 쪽이나 구간 경계를 넘으면 구간마다 있는 부분으로 나누어
 quotes에 여러 개로 넣으세요. 한 quote가 두 구간에 걸치면 원문 위치를 찾지 못합니다.
 수치의 단위, 조건, 대상과 불확실성을 보존하세요. 좌표와 검토 결과는 만들지 마세요.
+항목 지침 끝에 [분량: …]이 있으면 그 분량으로 쓰고, 값의 문장마다 그 문장을 뒷받침하는
+발췌를 1개 이상 quotes에 넣으세요. 분량 표시가 없으면 핵심을 1문장으로 씁니다.
+원문이 한국어가 아니면 quote마다 "ko"에 한국어 참고 번역을 넣으세요. 참고 번역은
+사람이 읽는 데만 쓰이고 원문 대조에는 쓰이지 않으니, quote는 반드시 원문 그대로 둡니다.
 응답은 JSON 객체 하나입니다: {"request_id":"요청 ID", "rows":[
 {"source_id":"s_...", "field_id":"finding", "value":"추출값",
-"quotes":[{"passage_id":"제공된 ID", "quote":"원문 발췌"}], "note":"한계"}]}.
+"quotes":[{"passage_id":"제공된 ID", "quote":"원문 발췌", "ko":"한국어 참고 번역(원문이 한국어면 생략)"}],
+"note":"한계"}]}.
 """
 SYNTHESIS_INSTRUCTIONS = """검토를 통과한 근거만으로 조사 질문에 답하세요.
 evidence의 value는 사람이 검토한 뒤의 값입니다(수정 후 채택이면 사람이 고친 값).
@@ -163,9 +168,15 @@ def import_extraction(project, run_id, payload):
             if not all(isinstance(q, dict) and isinstance(q.get("passage_id"), str)
                        and isinstance(q.get("quote"), str) for q in quotes):
                 raise ValueError("발췌에는 passage_id와 quote 문자열이 필요합니다.")
+            if any(not isinstance(q.get("ko", ""), str) for q in quotes):
+                raise ValueError("ko(참고 번역)는 문자열이어야 합니다.")
             if value is None and quotes:
                 raise ValueError("미발견 행에는 발췌를 넣지 마세요.")
+            # The quote is matched as printed; a reference translation rides along, never matched (#16).
             locators = [locate_quote(index, q["passage_id"], q["quote"]) for q in quotes]
+            for locator, q in zip(locators, quotes):
+                if q.get("ko", "").strip():
+                    locator["translation"] = q["ko"].strip()[:2000]
             allowed_passages = {p["id"] for p in request["passages"]}
             if any(q["passage_id"] not in allowed_passages for q in quotes):
                 raise ValueError("이번 요청의 조사 범위에 없는 원문 구간입니다.")

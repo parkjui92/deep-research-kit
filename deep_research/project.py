@@ -89,6 +89,27 @@ def read_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+# How much text a field should hold (#29). Kept as a tag at the end of the field's instruction, so
+# the config format, earlier runs and the prepared example all stay as they were.
+DEFAULT_LENGTH = "핵심 1문장"
+LENGTH_CHOICES = [DEFAULT_LENGTH, "요약 2~3문장", "상세 4~6문장", "수치만"]
+_LENGTH_TAG = re.compile(r"\s*\[분량: ([^\]]*?)\.? 값의 문장마다 그 문장을 뒷받침하는 발췌를 1개 이상 붙인다\]\s*$")
+
+
+def length_of(instruction: str) -> str:
+    match = _LENGTH_TAG.search(instruction or "")
+    return match.group(1) if match else DEFAULT_LENGTH
+
+
+def with_length(instruction: str, length: str) -> str:
+    """The instruction with its length tag replaced. The default length adds no tag."""
+    base = _LENGTH_TAG.sub("", instruction or "").rstrip()
+    length = " ".join((length or "").replace("[", "").replace("]", "").split()).rstrip(".")
+    if not length or length == DEFAULT_LENGTH:
+        return base
+    return f"{base} [분량: {length}. 값의 문장마다 그 문장을 뒷받침하는 발췌를 1개 이상 붙인다]"
+
+
 def has_no_text(source: dict) -> bool:
     """Scanned PDF: pages but no text layer at all. Nothing in it can be extracted or located."""
     return bool(source.get("page_count")) and not source.get("text_pages")

@@ -141,3 +141,47 @@ def test_report_shows_study_id_as_written(tmp_path):
     from deep_research.exports import report
     p, run = _project_with_value(tmp_path, "Test finding", study_id="10.1002/(sici)1097-4571<693::aid-asi4>")
     assert "연구 ID: `10.1002/(sici)1097-4571<693::aid-asi4>`" in report(p, run)
+
+
+def test_pdf_view_draws_every_quote_and_scrolls_to_the_picked_one():
+    a = {"page": 2, "boxes": [{"page": 2, "x": 10, "y": 50, "width": 5, "height": 5}]}
+    b = {"page": 5, "boxes": [{"page": 5, "x": 10, "y": 20, "width": 5, "height": 5},
+                              {"page": 6, "x": 10, "y": 10, "width": 5, "height": 5}]}
+    view = chrome.pdf_view([a, b], focus=1)
+    assert view["pages"] == [2, 5, 6] and len(view["boxes"]) == 3
+    assert view["options"] == {"scroll_to_annotation": 2}
+    assert chrome.pdf_view([a, b], focus=0)["options"] == {"scroll_to_annotation": 1}
+    far = [{"page": p, "boxes": [{"page": p, "x": 1, "y": 1, "width": 1, "height": 1}]} for p in range(1, 10)]
+    assert chrome.pdf_view(far, focus=4)["pages"] == [5]       # many pages: only the picked quote's
+    assert chrome.pdf_view([{"page": 3, "boxes": []}])["options"] == {"scroll_to_page": 3}
+    assert chrome.pdf_view(None, page=4) == {"pages": [4], "boxes": [], "options": {"scroll_to_page": 4}}
+
+
+def test_longer_value_shows_first_sentence_in_the_cell():
+    from ui.workbench import _cell
+    row = {"value": "완료 시간이 19.5% 늘었다. 표본은 16명이다. 효과는 과업마다 달랐다.", "match_status": "matched",
+           "review": {"status": "pending"}}
+    assert _cell(row) == "○ 완료 시간이 19.5% 늘었다. 외 2문장"
+    assert _cell({**row, "value": "한 문장뿐인 값"}) == "○ 한 문장뿐인 값"
+
+
+def test_detail_shows_reference_translation_apart_from_the_quote(tmp_path):
+    from deep_research import workflow as w
+    from deep_research.project import read_json
+    p, _ = _project_with_value(tmp_path, "Test finding")
+    # A fresh run whose first value has two quotes, one with a translation.
+    run = w.prepare(p)
+    sid = p.catalog()[0]["id"]
+    request = read_json(p.run_dir(run) / "requests" / (sid + ".json"))
+    passage = request["passages"][0]["id"]
+    w.import_extraction(p, run, {"request_id": request["request_id"], "rows": [
+        {"source_id": sid, "field_id": f["id"], "value": "Test finding", "quotes": [
+            {"passage_id": passage, "quote": "A randomized study found", "ko": "무작위 <연구>에서 발견"},
+            {"passage_id": passage, "quote": "19 percent longer completion time"}]} for f in request["config"]["fields"]]})
+    app = AppTest.from_function(_workbench_script, args=(str(p.root),))
+    app.session_state["wb_run"] = run  # two runs made in the same second: look at the new one
+    app = app.run(timeout=60)
+    html = "\n".join(m.value for m in app.markdown)
+    assert "참고 번역(AI · 원문 대조 안 함) · 무작위 &lt;연구&gt;에서 발견" in html
+    assert "발췌 1 · PDF 1쪽" in html and "발췌 2 · PDF 1쪽" in html
+    assert any(s.label == "보러 갈 발췌" for s in app.selectbox)

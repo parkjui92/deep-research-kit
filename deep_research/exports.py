@@ -146,8 +146,10 @@ def report(project, run_id, local_pdf_links=False):
         if row["review"]["status"] == "edit":
             lines += [f"수정값: {text(display_value(row))}", ""]
         for locator in row["locators"]:
-            lines += [f"> {text(locator['quote']).replace(chr(10), ' ')}", "",
-                      f"PDF {locator['page']}쪽 · {word(locator['status'])} · 구간 `{locator['passage_id']}`", ""]
+            lines += [f"> {text(locator['quote']).replace(chr(10), ' ')}", ""]
+            if locator.get("translation"):
+                lines += [f"참고 번역(AI · 원문 대조 안 함): {text(locator['translation'])}", ""]
+            lines += [f"PDF {locator['page']}쪽 · {word(locator['status'])} · 구간 `{locator['passage_id']}`", ""]
             if local_pdf_links:
                 lines += [f"[원본 PDF 해당 쪽 열기](sources/{source['id']}.pdf#page={locator['page']})", ""]
         if row["note"] and len(notes) > 1:

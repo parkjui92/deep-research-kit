@@ -580,3 +580,39 @@ def test_synthesis_request_carries_the_corrected_value(project):
     assert "value는 사람이 검토한 뒤의 값" in request["instructions"]
     saved = read_json(project.run_dir(run) / "synthesis-request.json")
     assert {e["id"]: e["value"] for e in saved["evidence"]} == {e["id"]: e["value"] for e in request["evidence"]}
+
+
+def test_length_tag_goes_into_the_instruction_and_the_request(project):
+    from deep_research.project import DEFAULT_FIELDS, length_of, with_length
+    base = DEFAULT_FIELDS[2]["instruction"]
+    tagged = with_length(base, "요약 2~3문장")
+    assert tagged.startswith(base) and length_of(tagged) == "요약 2~3문장"
+    assert with_length(with_length(tagged, "수치만"), "핵심 1문장") == base  # replaced, then removed
+    assert length_of(base) == "핵심 1문장" and with_length("지침", "[3문장] 이내.").endswith("[분량: 3문장 이내. 값의 문장마다 그 문장을 뒷받침하는 발췌를 1개 이상 붙인다]")
+    config = project.config()
+    fields = [{**f, "instruction": with_length(f["instruction"], "요약 2~3문장")} if f["id"] == "finding" else f for f in config["fields"]]
+    project.save_config(config["plan"], fields, config["synthesis_rules"])
+    run = w.prepare(project)
+    sid = project.catalog()[0]["id"]
+    request = read_json(project.run_dir(run) / "requests" / (sid + ".json"))
+    assert "[분량: 요약 2~3문장." in w.prompt_pack(project, run, sid)
+    assert "문장마다 그 문장을 뒷받침하는" in request["instructions"]
+
+
+def test_reference_translation_is_kept_but_never_matched(project):
+    run = w.prepare(project)
+    payload = response(project, run)
+    payload["rows"][0]["quotes"][0]["ko"] = "무작위 연구에서 완료 시간이 19% 더 길었다."
+    payload["rows"][1]["quotes"][0]["ko"] = "  "
+    rows = w.import_extraction(project, run, payload)
+    assert rows[0]["locators"][0]["translation"] == "무작위 연구에서 완료 시간이 19% 더 길었다."
+    assert rows[0]["match_status"] == "matched" and "translation" not in rows[1]["locators"][0]
+    assert "참고 번역(AI · 원문 대조 안 함): 무작위 연구에서" in report(project, run)
+
+
+def test_translation_must_be_text(project):
+    run = w.prepare(project)
+    payload = response(project, run)
+    payload["rows"][0]["quotes"][0]["ko"] = ["not", "text"]
+    with pytest.raises(ValueError, match="참고 번역"):
+        w.import_extraction(project, run, payload)

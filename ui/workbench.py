@@ -14,11 +14,15 @@ from deep_research import workflow as flow
 from deep_research.exports import bibliography, citation, display_value, export_zip, report
 from deep_research.project import (
     DEFAULT_FIELDS,
+    DEFAULT_LENGTH,
     DEFAULT_PLAN,
     DEFAULT_RULES,
+    LENGTH_CHOICES,
     has_no_text,
+    length_of,
     no_text_note,
     read_json,
+    with_length,
 )
 
 from . import chrome as ui
@@ -46,7 +50,16 @@ def _cell(row):
     mark = GLYPH.get(row["review"]["status"], "○")
     if row["match_status"] != "matched" and row["review"]["status"] == "pending":
         mark = "?"
+    sentences = _sentences(display_value(row) or "")
+    if len(sentences) > 1:  # a longer value (#29): the first sentence, the rest in the detail panel
+        return f"{mark} {ui.short(sentences[0], 46)} 외 {len(sentences) - 1}문장"
     return f"{mark} {ui.short(display_value(row) or '', 60)}"
+
+
+def _sentences(text):
+    """Split at a sentence end followed by a space: '다. ', '. ', '? '. A decimal such as 19.5 has
+    no space after the point and stays whole."""
+    return [s for s in re.split(r"(?<=[.!?。])\s+", text.strip()) if s]
 
 
 def _slug(name):
@@ -161,13 +174,12 @@ def workbench(project):
         _detail(project, run_id, row, source, field_name, rows)
     with right:
         if row["locators"]:
-            pick = st.selectbox("원문 자리", range(len(row["locators"])), format_func=lambda i: f"{i + 1} · PDF {row['locators'][i]['page']}쪽",
-                                key="wb_loc_" + row["id"], label_visibility="collapsed") if len(row["locators"]) > 1 else 0
+            pick = st.selectbox("보러 갈 발췌", range(len(row["locators"])), format_func=lambda i: f"발췌 {i + 1} · PDF {row['locators'][i]['page']}쪽",
+                                key="wb_loc_" + row["id"]) if len(row["locators"]) > 1 else 0
             locator = row["locators"][pick]
-            ui.show_pdf(project, row["source_id"], [locator], page=locator["page"] or 1, identity="wb-" + row["id"],
+            ui.show_pdf(project, row["source_id"], row["locators"], page=locator["page"] or 1, identity="wb-" + row["id"], focus=pick,
                         caption="이 쪽은 강조 위치를 그릴 수 없습니다(회전·잘린 쪽). 원문을 직접 보며 확인하세요."
-                        if locator["status"] == "unsupported_page_geometry" else
-                        "주황 테두리 = AI가 이 값을 뽑아낸 원문 문장. 자리가 맞다는 뜻이지 값이 옳다는 뜻은 아닙니다.")
+                        if locator["status"] == "unsupported_page_geometry" else ui.evidence_caption(row["locators"]))
         else:
             ui.show_pdf(project, row["source_id"], identity="wb-" + row["id"], caption="이 항목은 읽은 범위에서 찾지 못했습니다. 원문을 넘기며 직접 확인하세요.")
 
@@ -181,9 +193,9 @@ def _detail(project, run_id, row, source, field_name, rows):
             ui.badge(ui.REVIEW, row["review"]["status"])
         st.markdown(f"**{ui.md(field_name)}** · {ui.md(ui.short(source['title'], 60))}")
         st.markdown(f'<div class="drk-value">{ui.h(row["value"] or "읽은 범위에서 찾지 못함")}</div>', unsafe_allow_html=True)
-        for locator in row["locators"]:
-            st.markdown(f'<div class="drk-quote">{ui.h(locator["quote"])}</div><div class="drk-meta">{ui.h(ui.locator_meta(locator))}</div>',
-                        unsafe_allow_html=True)
+        many = len(row["locators"]) > 1
+        for i, locator in enumerate(row["locators"], 1):
+            st.markdown(ui.quote_html(locator, i if many else None), unsafe_allow_html=True)
         if geometry := ui.geometry_note(row):
             st.warning(geometry, icon=":material/crop_rotate:")
         # What the model was given and what it wrote about its own reading are different things (#20).
@@ -397,12 +409,31 @@ def _import_popover(project):
             st.rerun()
 
 
+CUSTOM_LENGTH = "직접 입력"
+
+
+def _length_picker(prefix, current=DEFAULT_LENGTH):
+    """Length choices plus free text (#29). Returns None while the free text is still empty."""
+    options = LENGTH_CHOICES + [CUSTOM_LENGTH]
+    choice = st.selectbox("분량", options, index=options.index(current) if current in options else len(options) - 1,
+                          key=prefix + "_len", help="값을 몇 문장으로 받을지. 「핵심 1문장」 말고 다른 분량을 고르면 "
+                                                    "추출 지침 끝에 [분량: …]으로 붙고, 문장마다 근거 발췌를 요구합니다.")
+    if choice != CUSTOM_LENGTH:
+        return choice
+    custom = st.text_input("분량 직접 입력", "" if current in options else current, key=prefix + "_len_text",
+                           placeholder="예: 3문장 이내 / 단락 1개")
+    return custom.strip() or None
+
+
 def _fields_popover(project, config):
     st.markdown("**비교 항목** — 이름이 아니라 지침이 AI가 가져올 것을 정합니다. 표에서 고치거나 줄을 지우고 「항목 저장」.")
-    edited_fields = st.data_editor(config["fields"], num_rows="dynamic", width="stretch", key="wb_fields_editor",
+    edited_fields = st.data_editor([{**f, "length": length_of(f["instruction"])} for f in config["fields"]],
+                                   num_rows="dynamic", width="stretch", key="wb_fields_editor", disabled=["length"],
                                    column_config={"id": st.column_config.TextColumn("id", width="small", help="영문·숫자·하이픈"),
                                                   "name": st.column_config.TextColumn("이름", width="medium"),
-                                                  "instruction": st.column_config.TextColumn("추출 지침", width="large")})
+                                                  "instruction": st.column_config.TextColumn("추출 지침", width="large"),
+                                                  "length": st.column_config.TextColumn("분량", width="small",
+                                                                                        help="아래 「분량 바꾸기」에서 고릅니다")})
     if st.button("항목 저장", key="wb_fields_save"):
         cleaned = [{"id": _slug(f.get("id") or f.get("name") or ""), "name": (f.get("name") or "").strip(), "instruction": (f.get("instruction") or "").strip()}
                    for f in edited_fields if (f.get("name") or "").strip()]
@@ -416,10 +447,22 @@ def _fields_popover(project, config):
     st.divider()
     name = st.text_input("새 항목 이름", key="wb_f_name", placeholder="예: 표본 크기")
     instruction = st.text_input("추출 지침", key="wb_f_inst", placeholder="예: 참가자 수와 모집 방법을 숫자 그대로 적는다")
-    if st.button("항목 추가", disabled=not (name.strip() and instruction.strip()), key="wb_f_add"):
-        fields = config["fields"] + [{"id": _slug(name), "name": name.strip(), "instruction": instruction.strip()}]
+    length = _length_picker("wb_f_new")
+    if st.button("항목 추가", disabled=not (name.strip() and instruction.strip() and length), key="wb_f_add"):
+        fields = config["fields"] + [{"id": _slug(name), "name": name.strip(), "instruction": with_length(instruction.strip(), length)}]
         project.save_config(config["plan"], fields, config["synthesis_rules"])
         _say(f"항목 「{ui.md(name.strip())}」을 추가했습니다. 표에 'AI 추출 대기' 열로 보이며, 「AI로 추출」을 다시 실행하면 채워집니다.")
+        st.rerun()
+    st.divider()
+    st.markdown("**분량 바꾸기** — 기존 항목의 분량만 바꿉니다. 바꾼 분량은 다음 「AI로 추출」부터 적용되고, 이전 실행과 전후를 비교할 수 있습니다.")
+    ids = [f["id"] for f in config["fields"]]
+    target = st.selectbox("항목", ids, key="wb_f_len_target", format_func=lambda i: next(f["name"] for f in config["fields"] if f["id"] == i))
+    field = next(f for f in config["fields"] if f["id"] == target)
+    length = _length_picker("wb_f_len_" + target, length_of(field["instruction"]))
+    if st.button("분량 적용", disabled=not length or length == length_of(field["instruction"]), key="wb_f_len_apply"):
+        fields = [{**f, "instruction": with_length(f["instruction"], length)} if f["id"] == target else f for f in config["fields"]]
+        project.save_config(config["plan"], fields, config["synthesis_rules"])
+        _say(f"「{ui.md(field['name'])}」의 분량을 「{ui.md(length)}」로 바꿨습니다. 다음 「AI로 추출」부터 적용됩니다.")
         st.rerun()
     st.caption("질문·범위·포함 기준·읽을 쪽수는 「단계별 보기 → 1 · 조사 설계」에서 바꿉니다.")
 

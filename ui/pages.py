@@ -404,9 +404,9 @@ def review_page(project):
                 st.caption("발췌 문자열의 원문 위치를 찾았습니다. 위치가 맞다는 뜻이지 값이 옳다는 뜻은 아닙니다.")
             else:
                 st.warning(ui.geometry_note(row) or "원문 위치를 찾지 못했거나 미발견입니다. 채택할 수 없으며 보류·제외로 기록할 수 있습니다.")
-            for locator in row["locators"]:
-                st.markdown(f'<div class="drk-quote">{ui.h(locator["quote"])}</div>'
-                            f'<div class="drk-meta">{ui.h(ui.locator_meta(locator))}</div>', unsafe_allow_html=True)
+            many = len(row["locators"]) > 1
+            for i, locator in enumerate(row["locators"], 1):
+                st.markdown(ui.quote_html(locator, i if many else None), unsafe_allow_html=True)
             if row["note"]:
                 st.caption("AI 메모 · " + ui.md(row["note"]))
             st.caption(f"근거 ID `{row['id']}` · 읽기 범위 PDF {row['page_scope']['from']}~{row['page_scope']['to']}쪽 / 전체 {row['page_scope']['total']}쪽")
@@ -452,11 +452,11 @@ def review_page(project):
             ui.next_button(ui.STAGES[4], "next-4")
     with right:
         if row["locators"]:
-            pick = st.selectbox("보여줄 발췌", range(len(row["locators"])), format_func=lambda i: f"{i + 1} · PDF {row['locators'][i]['page']}쪽")
+            pick = st.selectbox("보러 갈 발췌", range(len(row["locators"])), format_func=lambda i: f"발췌 {i + 1} · PDF {row['locators'][i]['page']}쪽")
             locator = row["locators"][pick]
-            ui.show_pdf(project, row["source_id"], [locator], page=locator["page"] or 1, identity=selected,
-                        caption="실제 원본 PDF · 쪽수는 파일의 첫 장부터 셉니다. 주황 테두리 = AI가 이 값을 뽑아낸 원문 문장의 자리. "
-                                "자리가 맞다는 뜻이지 값이 옳다는 뜻은 아니므로 앞뒤 문맥을 읽고 판정합니다.")
+            ui.show_pdf(project, row["source_id"], row["locators"], page=locator["page"] or 1, identity=selected, focus=pick,
+                        caption="실제 원본 PDF · 쪽수는 파일의 첫 장부터 셉니다. " + ui.evidence_caption(row["locators"])
+                                + " 앞뒤 문맥을 읽고 판정합니다.")
         else:
             ui.show_pdf(project, row["source_id"], identity=selected)
 
