@@ -173,8 +173,23 @@ PROVIDERS = {"OpenAlex": openalex_search, "arXiv": arxiv_search, "Crossref": cro
 
 
 def _title_key(title):
+    """Letters and digits of any script, case folded: 「AI 기본법의 쟁점과 과제」 and 「AI 윤리」
+    stay different works (an ASCII-only key made both just "ai")."""
     import re
-    return re.sub(r"[^a-z0-9]", "", (title or "").lower())[:80]
+    import unicodedata
+    return re.sub(r"[\W_]", "", unicodedata.normalize("NFKC", title or "").casefold())[:80]
+
+
+def _same_work(a, b):
+    """One work: the same DOI, or the same title when the DOIs do not disagree. A preprint DOI
+    (arXiv 10.48550) and the published DOI of the same title are one work; two different
+    publisher DOIs ("Editorial", say) are not."""
+    if a["doi"] and a["doi"] == b["doi"]:
+        return True
+    if a["doi"] and b["doi"] and not any(d.startswith("10.48550/") for d in (a["doi"], b["doi"])):
+        return False
+    key = _title_key(a["title"])
+    return bool(key) and key == _title_key(b["title"])
 
 
 def search_literature(project, query, providers=("OpenAlex",), limit=20, year_from=None):
@@ -184,7 +199,7 @@ def search_literature(project, query, providers=("OpenAlex",), limit=20, year_fr
     if not query.strip():
         raise ValueError("검색어를 입력하세요.")
     year_from = int(year_from) if year_from else None
-    merged, errors, totals, received = {}, {}, {}, {}
+    merged, errors, totals, received = [], {}, {}, {}
     for name in providers:
         try:
             total, items = PROVIDERS[name](query, limit, year_from=year_from)
@@ -193,26 +208,26 @@ def search_literature(project, query, providers=("OpenAlex",), limit=20, year_fr
             continue
         totals[name], received[name] = total, len(items)
         for item in items:
-            # One work: the same DOI, or the same title (a preprint and its published version).
-            key = next((k for k, v in merged.items() if (item["doi"] and v["doi"] == item["doi"])
-                        or (_title_key(item["title"]) and _title_key(v["title"]) == _title_key(item["title"]))), None)
-            if key is not None:
-                old = merged[key]
-                old["pdf_url"] = old["pdf_url"] or item["pdf_url"]
-                old["oa"] = old["oa"] or item["oa"]
-                old["venue"] = old["venue"] or item["venue"]
-                old["abstract"] = old["abstract"] or item["abstract"]
-                old["year"] = old["year"] or item["year"]
-                old["providers"] = sorted(set(old.get("providers", [old["provider"]]) + [name]))
-            else:
-                merged[item["doi"] or _title_key(item["title"]) or item["title"]] = {**item, "providers": [name]}
-    results = list(merged.values())
+            old = next((m for m in merged if _same_work(m, item)), None)
+            if old is None:
+                merged.append({**item, "providers": [name], "merged_dois": [item["doi"]] if item["doi"] else []})
+                continue
+            old["pdf_url"] = old["pdf_url"] or item["pdf_url"]
+            old["oa"] = old["oa"] or item["oa"]
+            old["venue"] = old["venue"] or item["venue"]
+            old["abstract"] = old["abstract"] or item["abstract"]
+            old["year"] = old["year"] or item["year"]
+            old["doi"] = old["doi"] or item["doi"]
+            old["providers"] = sorted(set(old["providers"] + [name]))
+            if item["doi"] and item["doi"] not in old["merged_dois"]:
+                old["merged_dois"].append(item["doi"])
+    results = merged
     sent = {name: arxiv_query(query, year_from) if name == "arXiv" else query for name in providers}
     project.log_search({"provider": "+".join(providers), "query": query, "status": "success" if results or not errors else "failed",
                         "limit": limit, "filters": {"year_from": year_from}, "queries_sent": sent,
                         "totals": totals, "received": received, "errors": errors, "returned": len(results),
                         "items": [{"title": r["title"], "doi": r["doi"], "url": r["url"], "year": r["year"],
-                                   "providers": r["providers"]} for r in results]})
+                                   "providers": r["providers"], "merged_dois": r["merged_dois"]} for r in results]})
     if not results and errors:
         raise ValueError("검색 서버에 연결하지 못했습니다(" + ", ".join(errors) + "). PDF 직접 등록으로 계속할 수 있습니다.")
     return results
@@ -430,9 +445,16 @@ def agent_prompt(project, run_id, kind="extraction"):
     return where + task
 
 
-def _missing_results(project, run_id, kind, synthesis_id):
+def _saved_syntheses(project, run_id):
+    folder = project.run_dir(run_id) / "synthesis"
+    return {p.name for p in folder.glob("*.json")} if folder.exists() else set()
+
+
+def _missing_results(project, run_id, kind, syntheses_before):
     """What the run should have saved but did not. A zero exit code is not proof: a headless
-    agent that waits for a permission nobody can grant also exits 0 (#24)."""
+    agent that waits for a permission nobody can grant also exits 0 (#24). A synthesis counts when
+    a new one was saved and is current; the skill makes a fresh request first, so its id is not
+    known in advance."""
     folder = project.run_dir(run_id)
     if kind == "extraction":
         run = read_json(folder / "run.json")
@@ -440,7 +462,8 @@ def _missing_results(project, run_id, kind, synthesis_id):
         if done < len(run["requests"]):
             return f"문헌 {len(run['requests'])}편 중 {done}편의 결과만 저장됐습니다."
         return ""
-    if not synthesis_id or not (folder / "synthesis" / (synthesis_id + ".json")).exists():
+    from .workflow import current_synthesis
+    if not (_saved_syntheses(project, run_id) - syntheses_before) or current_synthesis(project, run_id) is None:
         return "종합 결과가 저장되지 않았습니다."
     return ""
 
@@ -456,12 +479,12 @@ def run_claude_code(project, run_id, kind="extraction", timeout=1800):
     folder = project.run_dir(run_id)
     if not (folder / "run.json").exists():
         raise ValueError(f"실행 {run_id}을 찾지 못했습니다. 「AI로 추출」을 다시 눌러 새 실행을 만드세요.")
-    synthesis_id = None
-    if kind != "extraction" and (folder / "synthesis-request.json").exists():
-        synthesis_id = read_json(folder / "synthesis-request.json")["request_id"]
+    syntheses_before = _saved_syntheses(project, run_id)
     root = project.root.resolve().parent.parent
+    # The project lies inside the working folder, so no --add-dir: a person's absolute path
+    # (with & or ^ in it, say) never reaches cmd.exe on Windows.
     args = [exe, "-p", agent_prompt(project, run_id, kind), "--output-format", "text",
-            "--allowedTools", *agent_tools(project, run_id), "--add-dir", str(project.root.resolve())]
+            "--allowedTools", *agent_tools(project, run_id)]
     from filelock import Timeout
     before = _review_state(project, run_id)
     try:
@@ -478,7 +501,7 @@ def run_claude_code(project, run_id, kind="extraction", timeout=1800):
     text = _output(result)
     if result.returncode != 0:
         raise ValueError(LOGIN_HINT if _needs_login(text) else "Claude Code 실행 실패: " + text[:300])
-    if missing := _missing_results(project, run_id, kind, synthesis_id):
+    if missing := _missing_results(project, run_id, kind, syntheses_before):
         last = " ".join(text.split())[-300:] or "출력 없음"
         if _needs_login(text):
             raise ValueError(LOGIN_HINT)

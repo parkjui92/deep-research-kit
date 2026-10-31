@@ -516,17 +516,35 @@ def test_part_of_a_printed_word_is_not_an_exact_match(tmp_path):
     assert locate_anywhere(index, "effective in reducing review time")["status"] == "partial_word"
 
 
-def test_word_boundary_rule_for_korean():
+def _found(words, quote):
     from deep_research.documents import _find, _haystack
-    words = [{"text": t} for t in ["업무", "처리가", "비효율적인", "것으로", "나타났다.", "생산성이", "높았다"]]
-    haystack, mapping, glued = _haystack(words)
-    def found(quote):
-        return bool(_find(normalize(quote), haystack, mapping, glued))
-    assert not found("효율적인 것으로 나타났다")   # 비- 가 잘린 반대 뜻
-    assert found("비효율적인 것으로 나타났다")
-    assert found("업무 처리가 비효율적")          # 끝에서 어미가 빠진 것은 허용
-    assert found("생산성")
-    assert not found("산성이 높았다")
+    haystack, mapping, glued = _haystack([{"text": t} for t in words])
+    return bool(_find(normalize(quote), haystack, mapping, glued))
+
+
+def test_word_boundary_rule_for_korean_chinese_japanese():
+    ko = ["업무", "처리가", "비효율적인", "것으로", "나타났다.", "노동생산성이", "높았다", "불만족", "비율"]
+    assert not _found(ko, "효율적인 것으로 나타났다")   # 비- 가 잘린 반대 뜻
+    assert not _found(ko, "만족 비율")
+    assert _found(ko, "비효율적인 것으로 나타났다")
+    assert _found(ko, "업무 처리가 비효율적")          # 끝에서 어미가 빠진 것은 허용
+    assert _found(ko, "생산성이 높았다")               # 붙어 쓴 합성어·붙어 추출된 낱말의 뒷부분
+    assert _found(["생성형", "AI가", "보고서를"], "생성형 AI")  # 라틴 낱말 뒤의 조사
+    # Chinese and Japanese lines come out as one "word": a quote may start mid-line.
+    assert _found(["本研究では生産性が向上したことを示す。"], "生産性が向上したことを示す")
+    assert _found(["结果表明该方法不显著提高效率"], "该方法不显著提高效率")
+    assert not _found(["结果表明该方法不显著提高效率"], "显著提高效率")
+
+
+def test_word_boundary_rule_for_numbers_and_footnotes():
+    words = ["showed", "gains", "in", "productivity12", "and", "0.19%", "in", "1,234", "people,", "-19%", "change"]
+    assert _found(words, "showed gains in productivity")        # footnote number stuck to the word
+    assert not _found(words, "19% in 1,234")                    # 0.19% → 19%
+    assert not _found(words, "234 people")                      # 1,234 → 234
+    assert not _found(words, "19% change")                      # -19% → 19%
+    assert not _found(words, "and 0.1")                         # 0.19 → 0.1
+    assert _found(["the", "2020-2021", "survey"], "2021 survey")  # a range, not a sign
+    assert _found(["COVID-19", "cases"], "19 cases")
 
 
 def test_rotated_margin_stamp_is_one_readable_line(tmp_path):

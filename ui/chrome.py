@@ -51,7 +51,9 @@ def h(text) -> str:
     """Data placed inside our own HTML. Values, quotes and titles come from model replies, search
     indexes and PDFs; as markup they could hide words on screen that still go into the CSV and the
     synthesis (#34). `$` becomes an entity so Streamlit never reads it as math (#21)."""
-    return html.escape("" if text is None else str(text), quote=True).replace("$", "&#36;")
+    escaped = html.escape("" if text is None else str(text), quote=True).replace("$", "&#36;")
+    # A blank line would end the HTML block and the rest would be read as Markdown again.
+    return escaped.replace("\r\n", "\n").replace("\n", "&#10;")
 
 
 _MARKDOWN_SIGNS = re.compile(r"([\\`*_{}\[\]<>()#+!|~$])")

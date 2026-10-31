@@ -9,7 +9,7 @@ set "UV="
 where uv >nul 2>nul && set "UV=uv"
 if not defined UV if exist "%USERPROFILE%\.local\bin\uv.exe" set UV="%USERPROFILE%\.local\bin\uv.exe"
 if not defined UV if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\uv.exe" set UV="%LOCALAPPDATA%\Microsoft\WinGet\Links\uv.exe"
-if not defined UV for /d %%D in ("%LOCALAPPDATA%\Microsoft\WinGet\Packages\astral-sh.uv_*") do if exist "%%D\uv.exe" set UV="%%D\uv.exe"
+if not defined UV for /d %%D in ("%LOCALAPPDATA%\Microsoft\WinGet\Packages\astral-sh.uv_*") do if exist "%%~D\uv.exe" set UV="%%~D\uv.exe"
 if not defined UV if exist "%USERPROFILE%\.cargo\bin\uv.exe" set UV="%USERPROFILE%\.cargo\bin\uv.exe"
 if not defined UV py -m uv --version >nul 2>nul && set "UV=py -m uv"
 if not defined UV goto no_uv

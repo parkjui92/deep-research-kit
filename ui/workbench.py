@@ -469,7 +469,7 @@ def _extract_popover(project, runs, included, config):
                     st.rerun()
         pending = st.session_state.get("wb_pending_run")
         if (error := st.session_state.get("wb_ai_error")) and pending in project.runs():
-            st.error(error, icon=":material/error:")
+            st.error(ui.md(error), icon=":material/error:")  # it quotes Claude's own words
             if flow.manifest(project, pending)["state"] == "awaiting_extraction":
                 with st.expander("남은 문헌을 웹 AI(Claude·ChatGPT 등)로 이어 하기"):
                     _web_ai_pack(project, pending)
@@ -572,7 +572,7 @@ def _export_popover(project, runs):
                 try:
                     run_claude_code(project, run_id, "synthesis")
                 except ValueError as exc:
-                    st.error(str(exc))  # no rerun: it would clear the message
+                    st.error(ui.md(str(exc)))  # no rerun: it would clear the message
                 else:
                     st.rerun()
         else:

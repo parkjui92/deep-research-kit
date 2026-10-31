@@ -222,7 +222,9 @@ def test_prompt_is_one_line_and_every_option_reaches_claude(tmp_path, monkeypatc
     assert argv[0] == "-p" and argv[1].startswith("/deep-research ")
     assert all("\n" not in a for a in argv)
     assert f"프로젝트 「projects/research」 · 실행 「{run}」" in argv[1]
-    assert "--allowedTools" in argv and "--add-dir" in argv and "--output-format" in argv
+    assert "--allowedTools" in argv and "--output-format" in argv
+    # No absolute path of the person's folder goes on the command line (cmd.exe would split at &).
+    assert "--add-dir" not in argv and not any(str(tmp_path) in a for a in argv)
     assert f"Edit(./projects/research/runs/{run}/drafts/**)" in argv
 
 
@@ -308,3 +310,38 @@ def test_search_sends_the_year_to_servers_and_logs_what_is_shown(tmp_path, monke
     assert log["returned"] == len(results) == len(log["items"])
     assert log["received"] == {"OpenAlex": 2, "arXiv": 1}
     assert log["queries_sent"]["arXiv"].startswith("all:AI AND all:productivity AND submittedDate:")
+
+
+def test_synthesis_counts_when_the_skill_makes_a_fresh_request(tmp_path, monkeypatch):
+    from deep_research import workflow as w
+    p, run = _extracted_project(tmp_path)
+    first = w.evidence(p, run)[0]["id"]
+    w.review(p, run, first, "accept", "Matches", "Person")
+    w.prepare_synthesis(p, run)  # the UI makes one; the skill makes its own again (SKILL.md 종합 1)
+    def agent():
+        request = w.prepare_synthesis(p, run)
+        w.import_synthesis(p, run, {"request_id": request["request_id"], "gaps": [], "claims": [
+            {"text": "One finding", "evidence_ids": [first], "kind": "finding"}]})
+    _fake_claude(monkeypatch, agent)
+    assert providers.run_claude_code(p, run, "synthesis") == "3"
+
+
+def test_search_merge_keeps_different_works_apart(tmp_path, monkeypatch):
+    from deep_research.project import Project, read_json
+    mk = providers._candidate
+    def openalex(query, limit, year_from=None):
+        return 4, [mk(provider="OpenAlex", title="AI 기본법의 쟁점과 과제", doi="10.1/ko-a"),
+                   mk(provider="OpenAlex", title="AI 윤리의 원칙", doi="10.1/ko-b"),
+                   mk(provider="OpenAlex", title="Editorial", doi="10.1/ed-a"),
+                   mk(provider="OpenAlex", title="인공지능과 생산성", doi="")]
+    def crossref(query, limit, year_from=None):
+        return 2, [mk(provider="Crossref", title="Editorial", doi="10.2/ed-b"),
+                   mk(provider="Crossref", title="인공지능과 생산성", doi="", pdf_url="https://x.test/a.pdf")]
+    monkeypatch.setitem(providers.PROVIDERS, "OpenAlex", openalex)
+    monkeypatch.setitem(providers.PROVIDERS, "Crossref", crossref)
+    p = Project(tmp_path / "projects" / "research").initialize()
+    results = providers.search_literature(p, "AI", ["OpenAlex", "Crossref"])
+    assert sorted(r["doi"] for r in results if r["doi"]) == ["10.1/ed-a", "10.1/ko-a", "10.1/ko-b", "10.2/ed-b"]
+    same = [r for r in results if r["title"] == "인공지능과 생산성"]
+    assert len(same) == 1 and same[0]["providers"] == ["Crossref", "OpenAlex"] and same[0]["pdf_url"]
+    assert read_json(p.root / "search-log.json")[-1]["returned"] == len(results) == 5

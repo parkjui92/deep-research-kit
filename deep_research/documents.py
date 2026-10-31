@@ -242,26 +242,62 @@ def _attaching(char: str) -> bool:
             or "぀" <= char <= "ヿ" or "一" <= char <= "鿿")
 
 
+# A cut right after one of these turns the meaning around: 비효율적→효율적, 不显著→显著.
+NEGATION_PREFIXES = set("비불미무몰탈不非無无未没沒")
+
+
+def _kind(char: str) -> str:
+    if char.isdigit():
+        return "digit"
+    if _attaching(char):
+        return "cjk"
+    return "letter" if char.isalpha() else "other"
+
+
 def _find(needle: str, haystack: str, mapping: list | None = None, glued: frozenset | set = frozenset()) -> list:
-    """Every place the normalized needle occurs. With `mapping`, only places that start and end on
-    a printed word boundary: "likely" inside "unlikely", "19%" inside "119%" or 효율적 inside
-    비효율적 is not the printed text (#30). Punctuation next to the cut ("time" in "time.") is
-    fine, and so is a Korean or Japanese ending left off at the end (생산성 in 생산성이)."""
+    """Every place the normalized needle occurs. With `mapping`, places that cut a printed word
+    are dropped (#30): "likely" inside "unlikely", "19%" inside "119%", "0.19%" or "-19%",
+    효율적 inside 비효율적. Not a cut: punctuation next to the quote ("time" in "time."), a
+    footnote number stuck to the word ("productivity" in "productivity12"), and Korean, Chinese
+    or Japanese text, which runs on without spaces and takes particles and endings (생산성 in
+    노동생산성이, "AI" in "AI가"), unless the character cut off in front is a negation prefix."""
     starts = [m.start() for m in re.finditer("(?=" + re.escape(needle) + ")", haystack)]
     if mapping is None:
         return starts
 
     def same_word(a, b):
-        return mapping[a] == mapping[b] or (mapping[b] == mapping[a] + 1 and mapping[a] in glued)
+        return (0 <= a and b < len(haystack)
+                and (mapping[a] == mapping[b] or (mapping[b] == mapping[a] + 1 and mapping[a] in glued)))
 
-    keep = []
-    for start in starts:
-        end = start + len(needle)
-        cut_front = (start > 0 and same_word(start - 1, start)
-                     and haystack[start - 1].isalnum() and needle[0].isalnum())
-        cut_back = (end < len(haystack) and same_word(end - 1, end)
-                    and haystack[end].isalnum() and needle[-1].isalnum()
-                    and not (_attaching(needle[-1]) and _attaching(haystack[end])))
-        if not (cut_front or cut_back):
-            keep.append(start)
-    return keep
+    def cut_front(start):
+        if start == 0 or not same_word(start - 1, start):
+            return False
+        before, first = haystack[start - 1], needle[0]
+        if _kind(before) == "cjk" and _kind(first) == "cjk":
+            return before in NEGATION_PREFIXES
+        if _kind(before) == _kind(first) and _kind(first) in {"letter", "digit"}:
+            return True
+        if before == "-" and first.isalpha():  # non-significant → significant
+            head, i = "", start - 2
+            while same_word(i, i + 1) and haystack[i].isalpha():
+                head, i = haystack[i] + head, i - 1
+            return head in {"non", "un", "not", "anti", "dis"}
+        if not first.isdigit():
+            return False
+        outer = haystack[start - 2] if same_word(start - 2, start - 1) else ""
+        if before in "+-":
+            return not outer.isalnum()  # a sign (-19%), not a range or a name (2020-2021, COVID-19)
+        return before in ".," and outer.isdigit()  # 0.19, 1,234
+
+    def cut_back(end):
+        if end >= len(haystack) or not same_word(end - 1, end):
+            return False
+        last, after = needle[-1], haystack[end]
+        if _kind(after) == "cjk":
+            return False
+        if _kind(last) == _kind(after) and _kind(last) in {"letter", "digit"}:
+            return True
+        return (last.isdigit() and after in ".," and same_word(end, end + 1)
+                and haystack[end + 1].isdigit())  # 19 of 19.5, 1 of 1,234
+
+    return [s for s in starts if not (cut_front(s) or cut_back(s + len(needle)))]

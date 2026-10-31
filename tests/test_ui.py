@@ -23,7 +23,7 @@ def test_escape_helpers_keep_text_as_written():
     assert chrome.safe_url("javascript:alert(1)") == "" and chrome.safe_url(" https://doi.org/x ") == "https://doi.org/x"
 
 
-def _project_with_value(tmp_path, value, note="", cropped=False):
+def _project_with_value(tmp_path, value, note="", cropped=False, study_id=None):
     import io
 
     from reportlab.pdfgen import canvas
@@ -39,7 +39,7 @@ def _project_with_value(tmp_path, value, note="", cropped=False):
     pdf.save()
     p = Project(tmp_path / "projects" / "research").initialize()
     sid = p.add_pdf(buf.getvalue(), "paper.pdf", 'Study of "AI" <tools>')
-    p.screen(sid, "include", "Observed task outcome")
+    p.screen(sid, "include", "Observed task outcome", study_id=study_id)
     run = w.prepare(p)
     request = read_json(p.run_dir(run) / "requests" / (sid + ".json"))
     passage = request["passages"][0]
@@ -128,3 +128,16 @@ def test_sample_question_is_flagged_in_a_new_project(tmp_path):
     app = _button(app, "조사 질문 바꾸러 가기").click().run(timeout=60)
     assert not app.exception
     assert app.session_state["mode"] == "단계별(학습)" and app.session_state["stage_value"] == STAGES[0]
+
+
+def test_blank_lines_and_brackets_cannot_hide_text():
+    from deep_research.exports import text
+    value = "보이는 값\n\n[숨김]: #\n뒷부분"
+    assert "\n" not in chrome.h(value) and "&#10;&#10;" in chrome.h(value)
+    assert "\n" not in text(value) and "\\[숨김]" in text(value)
+
+
+def test_report_shows_study_id_as_written(tmp_path):
+    from deep_research.exports import report
+    p, run = _project_with_value(tmp_path, "Test finding", study_id="10.1002/(sici)1097-4571<693::aid-asi4>")
+    assert "연구 ID: `10.1002/(sici)1097-4571<693::aid-asi4>`" in report(p, run)

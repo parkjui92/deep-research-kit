@@ -73,7 +73,8 @@ def text(value):
     """Text from people, models and PDFs inside the Markdown report. As markup it could hide words
     in the report and on the review screen that still reach the CSV and the synthesis (#34), and
     `$…$` reads as a formula (#21). The CSV and the reference list keep the text as it is."""
-    return str(value).replace("<", "&lt;").replace(">", "&gt;").replace("$", "\\$")
+    flat = " ".join(str(value).splitlines())  # a blank line would let a `[x]: …` line vanish
+    return flat.replace("<", "&lt;").replace(">", "&gt;").replace("$", "\\$").replace("[", "\\[")
 
 
 def cell(value):
@@ -135,8 +136,9 @@ def report(project, run_id, local_pdf_links=False):
     lines += ["", "## 검토 기록과 원문 위치", ""]
     for row in rows:
         source = sources[row["source_id"]]
+        study = str(source["study_id"]).replace("`", "'")  # shown in a code span, so as it is
         lines += [f"<a id=\"{row['id']}\"></a>", f"### {row['id']} · {text(fields[row['field_id']])}", "",
-                  f"문헌: {text(source['title'])} (`{source['id']}`), 연구 ID: `{text(source['study_id'])}`", "",
+                  f"문헌: {text(source['title'])} (`{source['id']}`), 연구 ID: `{study}`", "",
                   f"추출값: {text(row['value'] or '자료에서 찾지 못함')}", "",
                   f"읽기 범위: PDF {row['page_scope']['from']}~{row['page_scope']['to']}쪽 / 전체 {row['page_scope']['total']}쪽", "",
                   f"위치 대조: {word(row['match_status'])} · 검토: {word(row['review']['status'])}", "",
