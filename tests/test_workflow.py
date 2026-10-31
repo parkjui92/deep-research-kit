@@ -380,3 +380,30 @@ def test_collection_keeps_metadata_only_candidates(project):
     # Same DOI again replaces the earlier row instead of duplicating it.
     collect(project, {"title": "No PDF here v2", "authors": [], "year": 2021, "venue": "", "doi": "10.9/none", "url": "", "pdf_url": "", "oa": False, "provider": "test"})
     assert len(project.collection()) == 1 and project.collection()[0]["title"] == "No PDF here v2"
+
+
+def test_quote_split_at_page_break_is_located(tmp_path):
+    buf = io.BytesIO()
+    pdf = canvas.Canvas(buf)
+    pdf.drawString(50, 60, "The randomized trial found that completion time")
+    pdf.showPage()
+    pdf.drawString(50, 750, "increased by nineteen percent in mature projects.")
+    pdf.showPage()
+    pdf.save()
+    p = Project(tmp_path / "split").initialize()
+    sid = p.add_pdf(buf.getvalue(), "split.pdf", "Split study")
+    p.screen(sid, "include", "Observed task outcome")
+    run = w.prepare(p)
+    request = read_json(p.run_dir(run) / "requests" / (sid + ".json"))
+    assert "구간마다 있는 부분으로 나누어" in request["instructions"]
+    first, second = request["passages"][0]["id"], request["passages"][1]["id"]
+    whole = "The randomized trial found that completion time increased by nineteen percent"
+    split = [{"passage_id": first, "quote": "The randomized trial found that completion time"},
+             {"passage_id": second, "quote": "increased by nineteen percent"}]
+    fields = [f["id"] for f in request["config"]["fields"]]
+    rows = [{"source_id": sid, "field_id": fid, "value": "19% longer",
+             "quotes": split if fid == fields[0] else [{"passage_id": first, "quote": whole}]} for fid in fields]
+    out = {r["field_id"]: r for r in w.import_extraction(p, run, {"request_id": request["request_id"], "rows": rows})}
+    assert out[fields[0]]["match_status"] == "matched"
+    assert {loc["page"] for loc in out[fields[0]]["locators"]} == {1, 2}
+    assert out[fields[1]]["match_status"] == "needs_check"

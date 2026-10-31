@@ -31,3 +31,83 @@ def test_api_error_does_not_echo_provider_body_or_key(monkeypatch):
     with pytest.raises(ValueError, match="HTTP 429") as error:
         providers.completion({"instructions": "Return JSON"})
     assert "private" not in str(error.value)
+
+
+def _extracted_project(tmp_path):
+    import io
+
+    from reportlab.pdfgen import canvas
+
+    from deep_research import workflow as w
+    from deep_research.project import Project, read_json
+    buf = io.BytesIO()
+    pdf = canvas.Canvas(buf)
+    pdf.drawString(50, 750, "A randomized study found 19 percent longer completion time.")
+    pdf.showPage()
+    pdf.save()
+    p = Project(tmp_path / "projects" / "research").initialize()
+    sid = p.add_pdf(buf.getvalue(), "paper.pdf", "Test study")
+    p.screen(sid, "include", "Observed task outcome")
+    run = w.prepare(p)
+    request = read_json(p.run_dir(run) / "requests" / (sid + ".json"))
+    passage = request["passages"][0]
+    w.import_extraction(p, run, {"request_id": request["request_id"], "rows": [
+        {"source_id": sid, "field_id": f["id"], "value": "Test finding",
+         "quotes": [{"passage_id": passage["id"], "quote": passage["text"]}]}
+        for f in request["config"]["fields"]]})
+    return p, run
+
+
+def test_agent_tools_have_no_code_execution_or_review_writes(tmp_path):
+    p, run = _extracted_project(tmp_path)
+    tools = providers.agent_tools(p, run)
+    assert not any("python" in t or t in {"Write", "Edit"} for t in tools)
+    edits = [t for t in tools if t.startswith("Edit(")]
+    assert edits == [f"Edit(./projects/research/runs/{run}/drafts/**)"]
+    assert (p.run_dir(run) / "drafts").is_dir()
+
+
+def _fake_claude(monkeypatch, effect):
+    import shutil
+    import subprocess
+    monkeypatch.setattr(shutil, "which", lambda name: "claude")
+    def run(args, **kwargs):
+        effect()
+        return subprocess.CompletedProcess(args, 0, stdout="3", stderr="")
+    monkeypatch.setattr(subprocess, "run", run)
+
+
+def test_agent_run_cannot_change_human_review_state(tmp_path, monkeypatch):
+    from deep_research import workflow as w
+    from deep_research.project import read_json, write_json
+    p, run = _extracted_project(tmp_path)
+    first = w.evidence(p, run)[0]["id"]
+    w.review(p, run, first, "hold", "Needs the table", "Person")
+    folder = p.run_dir(run)
+    reviews_before = (folder / "reviews.json").read_text(encoding="utf-8")
+
+    def tamper():
+        rows = read_json(folder / "evidence.json")
+        for row in rows:
+            row["review"] = {"status": "accept", "note": "ok", "reviewer": "Person"}
+        write_json(folder / "evidence.json", rows)
+        write_json(folder / "reviews.json", [{"evidence_id": first, "status": "accept"}])
+        manifest = read_json(folder / "run.json")
+        manifest["review_revision"] += 5
+        write_json(folder / "run.json", manifest)
+
+    _fake_claude(monkeypatch, tamper)
+    with pytest.raises(ValueError, match="검토 기록이 바뀌어"):
+        providers.run_claude_code(p, run)
+    rows = {e["id"]: e for e in w.evidence(p, run)}
+    assert rows[first]["review"]["status"] == "hold"
+    assert all(e["review"]["status"] == "pending" for i, e in rows.items() if i != first)
+    assert (folder / "reviews.json").read_text(encoding="utf-8") == reviews_before
+    assert w.manifest(p, run)["review_revision"] == 1
+    assert w.accepted(p, run) == []
+
+
+def test_agent_run_without_review_changes_passes(tmp_path, monkeypatch):
+    p, run = _extracted_project(tmp_path)
+    _fake_claude(monkeypatch, lambda: None)
+    assert providers.run_claude_code(p, run) == "3"
