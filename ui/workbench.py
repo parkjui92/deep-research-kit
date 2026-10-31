@@ -378,7 +378,7 @@ def _fields_popover(project, config):
 
 
 def _extract_popover(project, runs, included, config):
-    from deep_research.providers import claude_code_status, run_claude_code
+    from deep_research.providers import agent_busy, claude_code_status, run_claude_code
     st.markdown(f"**AI로 추출** — 포함 문헌 {len(included)}편 × 항목 {len(config['fields'])}개")
     example = (project.root / "example-manifest.json").exists()
     if not included:
@@ -389,7 +389,10 @@ def _extract_popover(project, runs, included, config):
     status = st.session_state["cc_status"]
     if status["available"]:
         st.caption("이 컴퓨터의 Claude Code를 앱이 직접 부릅니다. 문헌 3편이면 보통 3~8분.")
-        if st.button("AI로 추출 실행", type="primary", key="wb_run_ai", width="stretch", icon=":material/auto_awesome:"):
+        busy = agent_busy(project)
+        if busy:
+            st.info("이 프로젝트에서 AI 실행이 진행 중입니다. 끝나면 「저장된 응답 새로 읽기」로 결과를 확인하세요.", icon=":material/hourglass_top:")
+        if st.button("AI로 추출 실행", type="primary", key="wb_run_ai", width="stretch", icon=":material/auto_awesome:", disabled=busy):
             try:
                 run_id = flow.prepare(project)
             except ValueError as exc:
@@ -401,6 +404,8 @@ def _extract_popover(project, runs, included, config):
                 except ValueError as exc:
                     st.error(str(exc))
                     st.session_state["wb_pending_run"] = run_id
+                    if "/login" in str(exc):  # installed but signed out: show the other ways to continue
+                        st.session_state["cc_status"] = {"available": False, "reason": str(exc)}
                     return
             st.session_state["wb_run"] = run_id
             _say("추출이 끝났습니다. 비교표에서 값을 눌러 원문과 대조하세요.")

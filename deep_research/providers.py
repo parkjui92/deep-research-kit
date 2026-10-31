@@ -267,21 +267,54 @@ def parse_bibtex(text):
 # Claude Code as the default AI runner (one button in the UI). Falls back to the copy-paste
 # instructions when the CLI is missing or not logged in.
 # ---------------------------------------------------------------------------
+# A Claude Code session that started this app exports its own session variables (session id,
+# messaging socket, entrypoint…); a child must not inherit them. The person's configuration
+# for how Claude Code runs on this machine is kept.
+CLAUDE_USER_SETTINGS = {"CLAUDE_CONFIG_DIR", "CLAUDE_CODE_GIT_BASH_PATH", "CLAUDE_CODE_USE_BEDROCK",
+                        "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_SKIP_BEDROCK_AUTH", "CLAUDE_CODE_SKIP_VERTEX_AUTH"}
+LOGIN_HINT = "Claude Code에 로그인돼 있지 않습니다. 터미널에서 `claude`를 열어 /login 한 뒤 「③ Claude Code 설치하기」의 「다시 확인」을 누르세요."
+
+
+def claude_env():
+    return {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE") or k in CLAUDE_USER_SETTINGS}
+
+
+def _needs_login(text):
+    return "Not logged in" in text or "/login" in text
+
+
 def claude_code_status():
+    """Is the CLI installed and runnable? Uses `--version`, which costs no model usage.
+    Login is checked by the real run, which reports it in plain words."""
     import shutil
     import subprocess
     exe = shutil.which("claude")
     if not exe:
         return {"available": False, "reason": "Claude Code(claude 명령)가 설치돼 있지 않습니다."}
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
     try:
-        probe = subprocess.run([exe, "-p", "OK라고만 답해", "--output-format", "text"], capture_output=True, text=True, timeout=60, env=env)
+        probe = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=20, env=claude_env())
     except (subprocess.TimeoutExpired, OSError) as exc:
         return {"available": False, "reason": f"Claude Code 응답 없음({type(exc).__name__})."}
-    text = (probe.stdout + probe.stderr).strip()
-    if probe.returncode != 0 or "Not logged in" in text or "login" in text.lower() and "/login" in text:
-        return {"available": False, "reason": "Claude Code에 로그인돼 있지 않습니다. 터미널에서 `claude`를 열어 /login 뒤 다시 누르세요."}
+    if probe.returncode != 0:
+        text = (probe.stdout + probe.stderr).strip()
+        return {"available": False, "reason": LOGIN_HINT if _needs_login(text) else "Claude Code 실행 오류: " + text[:200]}
     return {"available": True, "reason": ""}
+
+
+def agent_lock(project):
+    """One AI run per project at a time. Held by this server process for the whole run, so a
+    page refresh or a second click cannot start a parallel agent on the same files."""
+    from filelock import FileLock
+    return FileLock(str(project.root / ".agent-run.lock"), timeout=0)
+
+
+def agent_busy(project):
+    from filelock import Timeout
+    try:
+        with agent_lock(project):
+            return False
+    except Timeout:
+        return True
 
 
 def run_claude_code(project, run_id, kind="extraction", timeout=1800):
@@ -299,13 +332,18 @@ def run_claude_code(project, run_id, kind="extraction", timeout=1800):
     else:
         prompt = (f"/deep-research\n프로젝트: {project.root.resolve()}\n실행: {run_id}\n"
                   "synthesis-request.json의 채택 근거를 종합하고 import-synthesis로 가져와 줘. 끝나면 주장 수만 한 줄로 보고해.")
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
+    from filelock import Timeout
+    env = claude_env()
     allowed = ["Read", "Glob", "Grep", "Write", "Edit", "Bash(uv run drk:*)", "Bash(uv run python:*)", "Bash(python3:*)", "Bash(mkdir:*)", "Bash(ls:*)", "Bash(cat:*)"]
     try:
-        result = subprocess.run([exe, "-p", prompt, "--output-format", "text", "--allowedTools", *allowed, "--add-dir", str(project.root.resolve())],
-                                cwd=root, capture_output=True, text=True, timeout=timeout, env=env)
+        with agent_lock(project):
+            result = subprocess.run([exe, "-p", prompt, "--output-format", "text", "--allowedTools", *allowed, "--add-dir", str(project.root.resolve())],
+                                    cwd=root, capture_output=True, text=True, timeout=timeout, env=env)
+    except Timeout:
+        raise ValueError("이 프로젝트에서 AI 실행이 이미 진행 중입니다. 끝난 뒤 「저장된 응답 새로 읽기」로 결과를 확인하세요.") from None
     except subprocess.TimeoutExpired:
         raise ValueError("Claude Code 실행이 제한 시간을 넘겼습니다. 이미 가져온 문헌은 저장돼 있으니 「저장된 응답 새로 읽기」 뒤 다시 실행하세요.") from None
     if result.returncode != 0:
-        raise ValueError("Claude Code 실행 실패: " + (result.stderr or result.stdout).strip()[:300])
+        text = (result.stderr or result.stdout).strip()
+        raise ValueError(LOGIN_HINT if _needs_login(text) else "Claude Code 실행 실패: " + text[:300])
     return (result.stdout or "").strip()[:500]
