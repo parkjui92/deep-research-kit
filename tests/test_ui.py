@@ -185,3 +185,22 @@ def test_detail_shows_reference_translation_apart_from_the_quote(tmp_path):
     assert "참고 번역(AI · 원문 대조 안 함) · 무작위 &lt;연구&gt;에서 발견" in html
     assert "발췌 1 · PDF 1쪽" in html and "발췌 2 · PDF 1쪽" in html
     assert any(s.label == "보러 갈 발췌" for s in app.selectbox)
+
+
+def test_sentence_split_keeps_numbers_and_abbreviations():
+    from ui.workbench import _sentences
+    assert len(_sentences("Smith et al. 2020에 따르면 효과가 컸다.")) == 1
+    assert len(_sentences("1. 표본은 16명이다. 2. 무작위 배정이다.")) == 2
+    assert len(_sentences("재현율은 94% vs. 91%였다.")) == 1
+    assert len(_sentences("U.S. 정부 자료를 썼다.")) == 1
+    assert len(_sentences("Completion time rose. The effect was large.")) == 2
+
+
+def test_caption_says_what_is_drawn():
+    one = {"page": 1, "boxes": [{"page": 1, "x": 1, "y": 1, "width": 1, "height": 1}]}
+    lost = {"page": 2, "boxes": []}
+    assert "발췌 2개" not in chrome.evidence_caption([one, lost])           # an unlocated quote is not counted
+    far = [{"page": p, "boxes": [{"page": p, "x": 1, "y": 1, "width": 1, "height": 1}]} for p in range(1, 10)]
+    assert "고른 발췌의 쪽(PDF 3쪽)만" in chrome.evidence_caption(far, focus=2)
+    two = [one, {"page": 4, "boxes": [{"page": 4, "x": 1, "y": 1, "width": 1, "height": 1}]}]
+    assert "발췌 2개를 모두 표시합니다(PDF 1, 4쪽)" in chrome.evidence_caption(two)

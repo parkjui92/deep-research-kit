@@ -51,9 +51,9 @@ def citation(source, row=None):
         pages = sorted({loc["page"] for loc in row["locators"] if loc.get("page")})
         if pages:
             line += f" (PDF {', '.join(map(str, pages))}쪽)"
-        quote = next((loc["quote"] for loc in row["locators"]), "")
-        if quote:
-            line += "\n원문: \"" + quote + "\""
+        quotes = [loc["quote"] for loc in row["locators"] if loc.get("quote")]
+        if quotes:
+            line += "\n원문: " + " / ".join(f"\"{q}\"" for q in quotes)
         line += "\n추출값: " + str(display_value(row) or "읽은 범위에서 찾지 못함")
     return line
 

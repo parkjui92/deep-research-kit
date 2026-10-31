@@ -277,9 +277,15 @@ def quote_html(locator, number=None) -> str:
     return out
 
 
-def evidence_caption(locators) -> str:
-    pages = sorted({loc["page"] for loc in locators if loc.get("page")})
-    where = f" 발췌 {len(locators)}개를 모두 표시합니다(PDF {', '.join(map(str, pages))}쪽)." if len(locators) > 1 else ""
+def evidence_caption(locators, focus=0) -> str:
+    """Says what the pane actually draws (see pdf_view): all located quotes, or only the picked one."""
+    located = [loc for loc in locators if loc["boxes"]]
+    drawn = pdf_view(locators, focus)["pages"]
+    where = ""
+    if len(located) > 1:
+        pages = sorted({b["page"] for loc in located for b in loc["boxes"]})
+        where = (f" 위치를 찾은 발췌 {len(located)}개를 모두 표시합니다(PDF {', '.join(map(str, pages))}쪽)." if set(pages) <= set(drawn)
+                 else f" 발췌가 여러 쪽에 흩어져 있어 고른 발췌의 쪽(PDF {', '.join(map(str, drawn))}쪽)만 그립니다.")
     return "주황 테두리 = AI가 이 값을 뽑아낸 원문 문장." + where + " 자리가 맞다는 뜻이지 값이 옳다는 뜻은 아닙니다."
 
 

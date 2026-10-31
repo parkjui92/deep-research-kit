@@ -91,19 +91,21 @@ def read_json(path: Path):
 
 # How much text a field should hold (#29). Kept as a tag at the end of the field's instruction, so
 # the config format, earlier runs and the prepared example all stay as they were.
-DEFAULT_LENGTH = "핵심 1문장"
-LENGTH_CHOICES = [DEFAULT_LENGTH, "요약 2~3문장", "상세 4~6문장", "수치만"]
-_LENGTH_TAG = re.compile(r"\s*\[분량: ([^\]]*?)\.? 값의 문장마다 그 문장을 뒷받침하는 발췌를 1개 이상 붙인다\]\s*$")
+DEFAULT_LENGTH = "기본(지정 없음)"  # no tag: the instruction reads exactly as before #29
+LENGTH_CHOICES = [DEFAULT_LENGTH, "핵심 1문장", "요약 2~3문장", "상세 4~6문장", "수치만"]
+_LENGTH_TAG = re.compile(r"\[분량: ([^\]]*?)\.? 값의 문장마다 그 문장을 뒷받침하는 발췌를 1개 이상 붙인다\]")
 
 
 def length_of(instruction: str) -> str:
-    match = _LENGTH_TAG.search(instruction or "")
-    return match.group(1) if match else DEFAULT_LENGTH
+    """The length the model will read: the last tag, wherever a person left it in the text."""
+    tags = _LENGTH_TAG.findall(instruction or "")
+    return tags[-1] if tags else DEFAULT_LENGTH
 
 
 def with_length(instruction: str, length: str) -> str:
-    """The instruction with its length tag replaced. The default length adds no tag."""
-    base = _LENGTH_TAG.sub("", instruction or "").rstrip()
+    """The instruction with one length tag at the end (any older tag removed). The default length
+    adds no tag."""
+    base = " ".join(_LENGTH_TAG.sub(" ", instruction or "").split())
     length = " ".join((length or "").replace("[", "").replace("]", "").split()).rstrip(".")
     if not length or length == DEFAULT_LENGTH:
         return base

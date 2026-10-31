@@ -20,7 +20,7 @@ description: Deep Research Kit 프로젝트의 PDF 원문을 읽고 항목별 �
 
 1. `runs/<run>/requests/`의 문헌별 JSON을 하나씩 처리한다. `instructions`, `config`, `source`, `warnings`를 읽는다.
 2. 긴 원문은 `uv run drk --project <project> read-request <run> <source_id> --start 0 --count 5`로 나눠 읽는다. `next_start`가 null일 때까지 이어서 읽는다. 문맥을 임의로 잘라 ‘원문 전체 검토’라고 쓰지 않는다. 시간·용량 제한 때문에 일부만 읽었다면 모든 행의 note에 읽은 범위를 밝힌다.
-3. 각 추출 항목에 한 행씩 작성한다. `source_id`, `field_id`, `value`, `quotes`, `note` 형식을 지킨다. quotes에는 제공된 `passage_id`와 그 구간에 실제 있는 연속 원문을 넣는다. 인용이 쪽이나 구간 경계를 넘으면 구간마다 있는 부분으로 나눠 quotes에 여러 개로 넣는다(한 quote가 두 구간에 걸치면 위치를 찾지 못해 채택할 수 없다). 좌표는 코드가 계산한다. 수치의 단위·비교 대상·조건을 보존한다. 항목 지침 끝에 `[분량: …]`이 있으면 그 분량으로 쓰고 값의 문장마다 뒷받침하는 발췌를 1개 이상 넣는다. 없으면 핵심 1문장이다. 원문이 한국어가 아니면 quote마다 `ko`에 한국어 참고 번역을 넣는다. 참고 번역은 화면에서 읽는 데만 쓰이고 원문 대조에는 쓰이지 않으므로 quote는 반드시 원문 그대로 둔다.
+3. 각 추출 항목에 한 행씩 작성한다. `source_id`, `field_id`, `value`, `quotes`, `note` 형식을 지킨다. quotes에는 제공된 `passage_id`와 그 구간에 실제 있는 연속 원문을 넣는다. 인용이 쪽이나 구간 경계를 넘으면 구간마다 있는 부분으로 나눠 quotes에 여러 개로 넣는다(한 quote가 두 구간에 걸치면 위치를 찾지 못해 채택할 수 없다). 좌표는 코드가 계산한다. 수치의 단위·비교 대상·조건을 보존한다. 항목 지침 끝에 `[분량: …]`이 있으면 그 분량으로 쓰고 값의 문장마다 뒷받침하는 발췌를 1개 이상 넣는다. 없으면 지침대로 간결하게 쓴다. 원문이 한국어가 아니면 quote마다 `ko`에 한국어 참고 번역을 넣는다. 참고 번역은 화면에서 읽는 데만 쓰이고 원문 대조에는 쓰이지 않으므로 quote는 반드시 원문 그대로 둔다.
 4. 찾지 못한 항목은 `value: null`, `quotes: []`로 남긴다. ‘미발견’을 ‘없음’으로 바꾸지 않는다. 원문에 없는 판단은 note의 추론으로 구분한다.
 5. 모델 응답은 `runs/<run>/drafts/<source_id>.json`에 저장하고 `uv run drk --project <project> import-extraction <run> <response_file>`로 검증·등록한다. `responses/`는 코어가 관리하므로 직접 쓰지 않는다.
 6. 가져오기가 실패하면 오류를 고치고 재검증한다. 원문 매칭 실패를 임의로 matched로 수정하지 않는다. 이미 등록한 응답 수정은 새 실행에서 수행한다.

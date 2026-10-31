@@ -455,7 +455,7 @@ def review_page(project):
             pick = st.selectbox("보러 갈 발췌", range(len(row["locators"])), format_func=lambda i: f"발췌 {i + 1} · PDF {row['locators'][i]['page']}쪽")
             locator = row["locators"][pick]
             ui.show_pdf(project, row["source_id"], row["locators"], page=locator["page"] or 1, identity=selected, focus=pick,
-                        caption="실제 원본 PDF · 쪽수는 파일의 첫 장부터 셉니다. " + ui.evidence_caption(row["locators"])
+                        caption="실제 원본 PDF · 쪽수는 파일의 첫 장부터 셉니다. " + ui.evidence_caption(row["locators"], pick)
                                 + " 앞뒤 문맥을 읽고 판정합니다.")
         else:
             ui.show_pdf(project, row["source_id"], identity=selected)

@@ -583,20 +583,29 @@ def test_synthesis_request_carries_the_corrected_value(project):
 
 
 def test_length_tag_goes_into_the_instruction_and_the_request(project):
-    from deep_research.project import DEFAULT_FIELDS, length_of, with_length
+    from deep_research.project import DEFAULT_FIELDS, DEFAULT_LENGTH, length_of, with_length
     base = DEFAULT_FIELDS[2]["instruction"]
     tagged = with_length(base, "요약 2~3문장")
     assert tagged.startswith(base) and length_of(tagged) == "요약 2~3문장"
-    assert with_length(with_length(tagged, "수치만"), "핵심 1문장") == base  # replaced, then removed
-    assert length_of(base) == "핵심 1문장" and with_length("지침", "[3문장] 이내.").endswith("[분량: 3문장 이내. 값의 문장마다 그 문장을 뒷받침하는 발췌를 1개 이상 붙인다]")
+    assert with_length(with_length(tagged, "수치만"), DEFAULT_LENGTH) == base  # replaced, then removed
+    assert length_of(base) == DEFAULT_LENGTH and length_of(with_length(base, "핵심 1문장")) == "핵심 1문장"
+    assert with_length("지침", "[3문장] 이내.").endswith("[분량: 3문장 이내. 값의 문장마다 그 문장을 뒷받침하는 발췌를 1개 이상 붙인다]")
+    # A person typed after the tag: the model reads that tag, and changing the length leaves one tag.
+    edited = tagged + " 수치는 그대로"
+    assert length_of(edited) == "요약 2~3문장"
+    changed = with_length(edited, "상세 4~6문장")
+    assert changed.count("[분량:") == 1 and changed.startswith(base + " 수치는 그대로") and length_of(changed) == "상세 4~6문장"
     config = project.config()
     fields = [{**f, "instruction": with_length(f["instruction"], "요약 2~3문장")} if f["id"] == "finding" else f for f in config["fields"]]
     project.save_config(config["plan"], fields, config["synthesis_rules"])
     run = w.prepare(project)
     sid = project.catalog()[0]["id"]
     request = read_json(project.run_dir(run) / "requests" / (sid + ".json"))
+    finding = next(f for f in request["config"]["fields"] if f["id"] == "finding")
+    assert length_of(finding["instruction"]) == "요약 2~3문장"
     assert "[분량: 요약 2~3문장." in w.prompt_pack(project, run, sid)
-    assert "문장마다 그 문장을 뒷받침하는" in request["instructions"]
+    # A field without a tag gets no length rule from the instructions either: as before #29.
+    assert "1문장으로" not in request["instructions"]
 
 
 def test_reference_translation_is_kept_but_never_matched(project):
@@ -616,3 +625,30 @@ def test_translation_must_be_text(project):
     payload["rows"][0]["quotes"][0]["ko"] = ["not", "text"]
     with pytest.raises(ValueError, match="참고 번역"):
         w.import_extraction(project, run, payload)
+
+
+def test_null_translation_is_like_none(project):
+    run = w.prepare(project)
+    payload = response(project, run)
+    payload["rows"][0]["quotes"][0]["ko"] = None
+    rows = w.import_extraction(project, run, payload)
+    assert "translation" not in rows[0]["locators"][0]
+
+
+def test_synthesis_request_leaves_out_reference_translations(project):
+    run = w.prepare(project)
+    payload = response(project, run)
+    payload["rows"][0]["quotes"][0]["ko"] = "참고 번역"
+    first = w.import_extraction(project, run, payload)[0]["id"]
+    w.review(project, run, first, "accept", "Matches", "Person")
+    request = w.prepare_synthesis(project, run)
+    assert "참고 번역" not in json.dumps(request, ensure_ascii=False)
+    assert w.evidence(project, run)[0]["locators"][0]["translation"] == "참고 번역"  # kept on the evidence
+
+
+def test_citation_line_carries_every_quote(project):
+    from deep_research.exports import citation
+    row = {"locators": [{"quote": "first part", "page": 1}, {"quote": "second part", "page": 2}],
+           "value": "v", "review": {"status": "pending"}}
+    line = citation(project.with_bib(project.catalog()[0]), row)
+    assert '원문: "first part" / "second part"' in line and "(PDF 1, 2쪽)" in line

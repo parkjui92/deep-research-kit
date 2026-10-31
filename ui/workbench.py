@@ -57,9 +57,11 @@ def _cell(row):
 
 
 def _sentences(text):
-    """Split at a sentence end followed by a space: '다. ', '. ', '? '. A decimal such as 19.5 has
-    no space after the point and stays whole."""
-    return [s for s in re.split(r"(?<=[.!?。])\s+", text.strip()) if s]
+    """Split after a Korean sentence end ('…했다. ') or after an English word of three or more
+    lower-case letters followed by a capital or Hangul ('… time. The'). Numbers, list markers and
+    abbreviations (1. · 19.5 · et al. · vs. · U.S.) stay inside the sentence."""
+    pattern = r"(?<=[가-힣][.!?])\s+|(?<=[a-z]{3}[.!?])\s+(?=[A-Z가-힣])|(?<=。)\s*"
+    return [s for s in re.split(pattern, text.strip()) if s]
 
 
 def _slug(name):
@@ -179,7 +181,7 @@ def workbench(project):
             locator = row["locators"][pick]
             ui.show_pdf(project, row["source_id"], row["locators"], page=locator["page"] or 1, identity="wb-" + row["id"], focus=pick,
                         caption="이 쪽은 강조 위치를 그릴 수 없습니다(회전·잘린 쪽). 원문을 직접 보며 확인하세요."
-                        if locator["status"] == "unsupported_page_geometry" else ui.evidence_caption(row["locators"]))
+                        if locator["status"] == "unsupported_page_geometry" else ui.evidence_caption(row["locators"], pick))
         else:
             ui.show_pdf(project, row["source_id"], identity="wb-" + row["id"], caption="이 항목은 읽은 범위에서 찾지 못했습니다. 원문을 넘기며 직접 확인하세요.")
 
@@ -416,11 +418,11 @@ def _length_picker(prefix, current=DEFAULT_LENGTH):
     """Length choices plus free text (#29). Returns None while the free text is still empty."""
     options = LENGTH_CHOICES + [CUSTOM_LENGTH]
     choice = st.selectbox("분량", options, index=options.index(current) if current in options else len(options) - 1,
-                          key=prefix + "_len", help="값을 몇 문장으로 받을지. 「핵심 1문장」 말고 다른 분량을 고르면 "
-                                                    "추출 지침 끝에 [분량: …]으로 붙고, 문장마다 근거 발췌를 요구합니다.")
+                          key=f"{prefix}_len_{current}", help="값을 몇 문장으로 받을지. 「기본」 말고 다른 분량을 고르면 추출 지침 끝에 [분량: …]으로 붙고, "
+                                                    "문장마다 근거 발췌를 요구합니다.")
     if choice != CUSTOM_LENGTH:
         return choice
-    custom = st.text_input("분량 직접 입력", "" if current in options else current, key=prefix + "_len_text",
+    custom = st.text_input("분량 직접 입력", "" if current in options else current, key=f"{prefix}_len_text_{current}",
                            placeholder="예: 3문장 이내 / 단락 1개")
     return custom.strip() or None
 
