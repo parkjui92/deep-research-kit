@@ -152,6 +152,40 @@ uv run drk --project projects/my-research api-synthesize RUN_ID
 - Crossref는 선택적인 서지 검색입니다. 웹 전체 딥리서치, 유료 원문 접근권, Scite의 전 세계 인용 맥락 데이터베이스를 제공하지 않습니다.
 - 기본 서버는 localhost에서 실행합니다. 계정·접근 제어를 제공하지 않으므로 공용 인터넷 서비스로 그대로 배포하지 마세요.
 
+## 함께 만든 사람들
+
+2026년 10월 31일, 수업 실습과 각자의 문헌조사에서 이 킷을 직접 설치해 쓴 분들이 이슈와 수정 PR을 보냈습니다. 재현 절차와 코드 위치까지 적어 준 덕분에 아래가 나아졌습니다.
+
+### 협업으로 좋아진 점
+
+| 영역 | 나아진 점 | 관련 이슈·PR |
+|---|---|---|
+| 설치·첫 실행 | Python 3.12로 고정해 최신 Python에서 설치가 멈추지 않음. 실행만으로 `uv.lock`이 바뀌지 않음. 첫 실행의 `Email:` 대기와 Streamlit 스킬 설치 팝업을 없앰. PATH에 없거나 방금 설치한 uv도 찾음. Windows 보안 정책 차단을 설치 실패와 구분하는 안내 | [#1](https://github.com/parkjui92/deep-research-kit/issues/1) [#2](https://github.com/parkjui92/deep-research-kit/pull/2) [#9](https://github.com/parkjui92/deep-research-kit/issues/9) [#10](https://github.com/parkjui92/deep-research-kit/issues/10) [#11](https://github.com/parkjui92/deep-research-kit/issues/11) [#12](https://github.com/parkjui92/deep-research-kit/issues/12) [#23](https://github.com/parkjui92/deep-research-kit/issues/23) [#26](https://github.com/parkjui92/deep-research-kit/issues/26) |
+| AI 실행의 안전과 신뢰 | 「AI로 추출」의 Claude Code 권한을 원문 읽기·해당 실행의 초안 쓰기·`drk` 명령으로 줄이고, 실행 중 사람의 검토 기록이 바뀌면 되돌림. 사용자 설정 변수 유지, 사용량을 쓰지 않는 상태 확인, 같은 프로젝트의 동시 실행 방지. Windows npm 설치본(`claude.cmd`)에서도 요청문과 옵션이 잘리지 않음. 저장된 결과로 성공을 판정하고 한글 Windows 출력도 UTF-8로 읽음 | [#3](https://github.com/parkjui92/deep-research-kit/issues/3) [#6](https://github.com/parkjui92/deep-research-kit/issues/6) [#7](https://github.com/parkjui92/deep-research-kit/pull/7) [#13](https://github.com/parkjui92/deep-research-kit/pull/13) [#24](https://github.com/parkjui92/deep-research-kit/issues/24) [#25](https://github.com/parkjui92/deep-research-kit/issues/25) [#32](https://github.com/parkjui92/deep-research-kit/issues/32) |
+| 원문 대조의 정확도 | 쪽·구간 경계를 넘는 인용도 위치를 찾음. 단어 일부만 맞는 인용(`unlikely`→`likely`)은 일치로 보지 않음. 여백의 세로 arXiv 판·날짜 표기를 읽음. 글자 없는 스캔본은 AI 실행 전에 막음. 회전·CropBox 쪽은 채택할 수 없는 이유를 보여 줌 | [#4](https://github.com/parkjui92/deep-research-kit/issues/4) [#5](https://github.com/parkjui92/deep-research-kit/issues/5) [#8](https://github.com/parkjui92/deep-research-kit/pull/8) [#14](https://github.com/parkjui92/deep-research-kit/issues/14) [#15](https://github.com/parkjui92/deep-research-kit/pull/15) [#22](https://github.com/parkjui92/deep-research-kit/issues/22) [#30](https://github.com/parkjui92/deep-research-kit/issues/30) |
+| 사람의 검토가 결과까지 | 고친 값이 「채택」 저장이나 종합 요청에서 AI 원래 값으로 돌아가지 않음. 화면에 보이는 글자와 CSV·보고서·종합으로 나가는 값이 같음(숨김 HTML·`$` 수식 해석 차단) | [#21](https://github.com/parkjui92/deep-research-kit/issues/21) [#31](https://github.com/parkjui92/deep-research-kit/issues/31) [#34](https://github.com/parkjui92/deep-research-kit/issues/34) |
+| 검색 기록의 재현성 | arXiv는 검색어의 모든 낱말이 들어간 문헌만 찾고, 발행연도는 검색 서버에 필터로 보냄. 검색 기록이 화면에 보인 목록과 같음 | [#33](https://github.com/parkjui92/deep-research-kit/issues/33) |
+| 처음 쓰는 사람의 안내 | 「단계별 보기」 전환 오류 해결. 칸 상세에 AI 메모와 읽기 범위 표시. 조사 질문이 예시 그대로면 추출 전에 알리고 문헌 수 상한을 보여 줌. 첫 화면에 흐름과 결과물, 판정 폼에 판정 기준과 입력 예시 | [#17](https://github.com/parkjui92/deep-research-kit/issues/17) [#18](https://github.com/parkjui92/deep-research-kit/issues/18) [#19](https://github.com/parkjui92/deep-research-kit/issues/19) [#20](https://github.com/parkjui92/deep-research-kit/issues/20) |
+
+다음 판에서 설계를 검토할 제안: 원문 발췌 번역 보기([#16](https://github.com/parkjui92/deep-research-kit/issues/16)), 스캔본 OCR([#27](https://github.com/parkjui92/deep-research-kit/issues/27)), 한 칸의 근거 모두 보기([#28](https://github.com/parkjui92/deep-research-kit/issues/28)), 항목별 추출 분량([#29](https://github.com/parkjui92/deep-research-kit/issues/29)), 내 질문과 겹치는 문구 표시·정렬([#17](https://github.com/parkjui92/deep-research-kit/issues/17)).
+
+### 기여자
+
+| 기여자 | 기여 |
+|---|---|
+| [daniel898865-alt](https://github.com/daniel898865-alt) | 코드: Python 버전 고정, AI 실행 권한 축소·검토 기록 보호, 스캔본 막기, Claude Code 연동, 경계를 넘는 인용 찾기(PR #2 #7 #8 #13 #15). 이슈 #1 #3 #4 #5 #6 |
+| [nackboom](https://github.com/nackboom) | 이슈 #9 #10 #11 #12, 데스크톱 앱 로그인 재현(#6) |
+| [katej5](https://github.com/katej5) | 이슈 #14 |
+| [hyeon0](https://github.com/hyeon0) | 이슈 #16 |
+| [LoveEvaLee](https://github.com/LoveEvaLee) | 이슈 #17 #18 |
+| [yunzecho-eng](https://github.com/yunzecho-eng) | 이슈 #19 #20 #21 #22 #23 |
+| [ypte98-prog](https://github.com/ypte98-prog) | 이슈 #24 #25 |
+| [daehyun5oh](https://github.com/daehyun5oh) | 이슈 #26 |
+| [inin0801-git](https://github.com/inin0801-git) | 이슈 #27 #28 #29 |
+| [morins](https://github.com/morins) | 이슈 #30 #31 #32 #33 #34, 재현 보강(#9 #11 #25) |
+
+이슈와 PR은 언제든 환영합니다. 재현 순서, 기대한 결과와 실제 결과, 관련 코드 위치를 적어 주면 가장 빨리 반영됩니다.
+
 ## 개발 검증과 재사용
 
 ```sh
