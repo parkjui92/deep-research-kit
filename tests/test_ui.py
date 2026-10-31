@@ -204,3 +204,17 @@ def test_caption_says_what_is_drawn():
     assert "고른 발췌의 쪽(PDF 3쪽)만" in chrome.evidence_caption(far, focus=2)
     two = [one, {"page": 4, "boxes": [{"page": 4, "x": 1, "y": 1, "width": 1, "height": 1}]}]
     assert "발췌 2개를 모두 표시합니다(PDF 1, 4쪽)" in chrome.evidence_caption(two)
+
+
+def test_missing_pdf_panel_offers_the_browser_and_the_downloads_watch(tmp_path):
+    from deep_research.project import Project
+    p = Project(tmp_path / "projects" / "mine").initialize()
+    p.remember_candidate({"title": "Blocked <Paper>", "doi": "10.1/x", "url": "https://doi.org/10.1/x", "year": 2025,
+                          "status": "pdf_missing", "source_id": None,
+                          "attempts": [{"route": "논문 페이지", "url": "https://doi.org/10.1/x", "result": "접근 거부(403)"}]})
+    app = AppTest.from_function(_workbench_script, args=(str(p.root),)).run(timeout=60)
+    assert not app.exception
+    assert any("PDF를 아직 받지 못한 문헌 1건" in m.value for m in app.markdown)
+    assert any("Blocked \\<Paper\\>" in m.value for m in app.markdown)
+    assert any("논문 페이지 → 접근 거부\\(403\\)" in c.value for c in app.caption)  # escaped, shown as written
+    assert any(t.label == "다운로드 폴더 지켜보기" for t in app.toggle)

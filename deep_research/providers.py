@@ -83,7 +83,7 @@ def _authors_openalex(work):
 
 def _candidate(**kw):
     base = {"provider": "", "title": "", "authors": [], "year": None, "venue": "", "doi": "", "url": "",
-            "pdf_url": "", "oa": False, "cited_by": None, "abstract": "", "external_id": ""}
+            "pdf_url": "", "pdf_urls": [], "oa": False, "cited_by": None, "abstract": "", "external_id": ""}
     base.update(kw)
     base["doi"] = (base["doi"] or "").replace("https://doi.org/", "").lower()
     return base
@@ -109,6 +109,7 @@ def openalex_search(query, limit=20, year_from=None):
                               venue=(loc.get("source") or {}).get("display_name", "") if loc else "",
                               doi=w.get("doi") or "", url=(w.get("doi") or w.get("id") or ""),
                               pdf_url=best.get("pdf_url") or "", oa=bool((w.get("open_access") or {}).get("is_oa")),
+                              pdf_urls=[x["pdf_url"] for x in w.get("locations") or [] if (x or {}).get("pdf_url")],
                               cited_by=w.get("cited_by_count"), abstract=abstract, external_id=w.get("id", "")))
     return payload.get("meta", {}).get("count", len(out)), out
 
@@ -213,6 +214,7 @@ def search_literature(project, query, providers=("OpenAlex",), limit=20, year_fr
                 merged.append({**item, "providers": [name], "merged_dois": [item["doi"]] if item["doi"] else []})
                 continue
             old["pdf_url"] = old["pdf_url"] or item["pdf_url"]
+            old["pdf_urls"] = list(dict.fromkeys(old.get("pdf_urls", []) + [item["pdf_url"]] * bool(item["pdf_url"]) + item.get("pdf_urls", [])))
             old["oa"] = old["oa"] or item["oa"]
             old["venue"] = old["venue"] or item["venue"]
             old["abstract"] = old["abstract"] or item["abstract"]
@@ -248,11 +250,15 @@ def fetch_pdf(url, timeout=60):
     return None
 
 
-def collect(project, candidate):
-    """Add a search candidate to the project: register the PDF when one can be fetched,
-    otherwise keep it as a metadata-only item waiting for a manual upload."""
-    data = fetch_pdf(candidate.get("pdf_url")) or (fetch_pdf(candidate["url"]) if "arxiv.org" in (candidate.get("url") or "") else None)
-    record = {k: candidate.get(k) for k in ("title", "authors", "year", "venue", "doi", "url", "pdf_url", "oa", "provider")}
+def collect(project, candidate, client=None):
+    """Add a search candidate to the project: register the PDF when an open copy can be found
+    (see acquire.find_pdf for the order), otherwise keep it as a metadata-only item waiting for
+    the person to download it. Every try is kept on the record."""
+    from .acquire import find_pdf
+    data, attempts = find_pdf(candidate, client)
+    record = {k: candidate.get(k) for k in ("title", "authors", "year", "venue", "doi", "url", "pdf_url", "pdf_urls",
+                                            "oa", "provider", "external_id")}
+    record["attempts"] = attempts
     if data:
         source_id = project.add_pdf(data, (candidate["doi"].replace("/", "_") or candidate["title"][:40]) + ".pdf",
                                     candidate["title"], candidate["doi"], candidate["url"])

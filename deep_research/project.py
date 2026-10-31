@@ -240,6 +240,25 @@ class Project:
             write_json(self.root / "catalog.json", catalog)
         return source_id
 
+    def fill_metadata(self, source_id, title="", doi="", url=""):
+        """Fill what an upload could not know: a title taken from the file name, a missing DOI
+        or address. What a person typed is never replaced."""
+        clean_doi = re.sub(r"^https?://(?:dx\.)?doi.org/", "", (doi or "").strip()).lower()
+        with self.lock:
+            catalog = self.catalog()
+            source = next((s for s in catalog if s["id"] == source_id), None)
+            if source is None:
+                raise ValueError("자료 ID를 찾을 수 없습니다.")
+            if title.strip() and source["title"] == Path(source.get("filename") or "").stem:
+                source["title"] = title.strip()
+            if clean_doi and not source.get("doi"):
+                source["doi"] = clean_doi
+                if source.get("study_id") == source_id:
+                    source["study_id"] = clean_doi
+            if url and not source.get("url"):
+                source["url"] = url
+            write_json(self.root / "catalog.json", catalog)
+
     def screen(self, source_id, decision, reason, study_id=None, title=None, doi=None, url=None, quotes=None):
         """Record a screening decision. `quotes` are printed passages that justify it; each is
         located in the PDF so the screen can highlight it. A quote that is not found stays in

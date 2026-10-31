@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import re
+import time
+from pathlib import Path
 
 import streamlit as st
 
@@ -91,6 +93,7 @@ def workbench(project):
     if note := no_text_note([s for s in sources if s["decision"] != "exclude"]):
         st.warning(note, icon=":material/scanner:")
     search_results_panel(project)
+    missing_pdfs_panel(project)
     if not runs:
         _onboarding(project, sources, included)
         return
@@ -165,7 +168,7 @@ def workbench(project):
             cols = st.columns(widths, gap="small")
             link = ui.safe_url(cand.get("url") or ("https://doi.org/" + cand["doi"] if cand.get("doi") else ""))
             anchor = f'<a href="{ui.h(link)}" target="_blank">원문 링크</a> → ' if link else ""
-            cols[0].markdown(f'<div class="drk-td-title">{ui.h(ui.short(cand["title"], 56))}<span>PDF 없음 · {anchor}「PDF 가져오기」로 올리면 묶입니다</span></div>', unsafe_allow_html=True)
+            cols[0].markdown(f'<div class="drk-td-title">{ui.h(ui.short(cand["title"], 56))}<span>PDF 없음 · {anchor}내려받으면 위 「다운로드 폴더 지켜보기」가 묶습니다</span></div>', unsafe_allow_html=True)
             for col in cols[1:]:
                 col.markdown('<div class="drk-td-empty">—</div>', unsafe_allow_html=True)
     row = next(r for r in rows if r["id"] == st.session_state["wb_pick"])
@@ -368,13 +371,107 @@ def search_results_panel(project):
             _say(msg)
             st.session_state["wb_results"] = []
             st.rerun()
-    pending = [c for c in project.collection() if c.get("status") == "pdf_missing"]
-    if pending:
-        st.markdown("**PDF가 아직 없는 문헌**")
-        for c in pending[:10]:
-            link = ui.safe_url(c.get("url") or ("https://doi.org/" + c["doi"] if c.get("doi") else ""))
-            label = ui.md(ui.short(c["title"], 70))
-            st.markdown((f"- [{label}](<{link}>)" if link else f"- {label}") + f" · {c.get('year') or ''}")
+
+
+
+WATCH_MINUTES = 20
+
+
+def missing_pdfs_panel(project):
+    """Hits whose PDF no open source handed over. The person opens each in their own browser
+    (their subscriptions and logins, their bot checks), and the app picks the file up."""
+    from deep_research import acquire
+    pending = acquire.waiting(project)
+    if not pending:
+        st.session_state.pop("wb_watch", None)
+        return
+    with st.container(border=True, key="drk-missing"):
+        st.markdown(f"**PDF를 아직 받지 못한 문헌 {len(pending)}건** — 바로 받을 수 있는 공개 사본이 없거나, 사이트가 자동 접근을 막았습니다. "
+                    "「원문 열기」로 내 브라우저에서 열어 PDF를 내려받으면 「다운로드 폴더 지켜보기」가 등록하고 이 문헌과 묶습니다. "
+                    "기관 구독·로그인이 필요한 곳은 내 계정으로 받습니다.")
+        for i, cand in enumerate(pending[:15]):
+            link = ui.safe_url(cand.get("url") or ("https://doi.org/" + cand["doi"] if cand.get("doi") else ""))
+            left, right = st.columns([5, 1.2])
+            left.markdown(f"{ui.md(ui.short(cand['title'], 90))} · {cand.get('year') or ''}")
+            if cand.get("attempts"):
+                left.caption("시도한 곳 · " + ui.md(acquire.attempts_summary(cand["attempts"])))
+            if link:
+                right.link_button("원문 열기", link, icon=":material/open_in_new:", width="stretch")
+        a, b = st.columns(2)
+        if a.button("PDF 다시 찾기 (자동)", key="wb_retry_pdfs", icon=":material/refresh:", width="stretch",
+                    help="공개 사본을 다시 찾습니다: 검색 결과의 주소, OpenAlex의 다른 위치, arXiv, Unpaywall, 논문 페이지의 PDF 주소 표시"):
+            with st.spinner("공개 사본을 다시 찾는 중 · 문헌당 최대 40초"):
+                got = acquire.retry_waiting(project)
+            _say(f"PDF {len(got)}건을 받았습니다." if got else "새로 받은 PDF가 없습니다. 내 브라우저에서 내려받아 주세요.")
+            st.rerun()
+        watching = b.toggle("다운로드 폴더 지켜보기", key="wb_watch_on",
+                            help=f"켜 둔 동안({WATCH_MINUTES}분까지) 새로 내려받은 PDF 가운데 위 문헌과 DOI·제목이 맞는 것만 등록합니다.")
+        if watching:
+            folder = st.text_input("다운로드 폴더", str(acquire.downloads_folder()), key="wb_watch_dir",
+                                   help="브라우저가 PDF를 저장하는 폴더. macOS는 처음에 이 폴더 접근을 허용할지 물을 수 있습니다.")
+            state = st.session_state.get("wb_watch")
+            if not state or state["folder"] != folder:
+                st.session_state["wb_watch"] = {"folder": folder, "since": time.time(), "seen": set(), "linked": [], "unmatched": []}
+            _watch_downloads(project)
+        else:
+            st.session_state.pop("wb_watch", None)
+        _manual_link(project, pending)
+
+
+@st.fragment(run_every=3)
+def _watch_downloads(project):
+    from deep_research import acquire
+    state = st.session_state.get("wb_watch")
+    if not state:
+        return
+    if time.time() - state["since"] > WATCH_MINUTES * 60:
+        st.caption(f"{WATCH_MINUTES}분이 지나 지켜보기를 멈췄습니다. 다시 하려면 껐다 켜세요.")
+        return
+    changed = False
+    for path in acquire.new_downloads(state["folder"], state["since"], state["seen"]):
+        state["seen"].add(str(path))
+        data = acquire.read_download(path)
+        if data is None:
+            continue
+        candidate, how = acquire.match_file(project, path)
+        if candidate:
+            source_id = project.add_pdf(data, path.name)
+            acquire.link(project, source_id, candidate, how + " · 다운로드 폴더")
+            state["linked"].append(candidate["title"])
+            changed = True
+        else:
+            state["unmatched"].append(str(path))
+    st.caption(f"지켜보는 중 · {ui.md(state['folder'])} · 묶은 PDF {len(state['linked'])}건")
+    for name in list(state["unmatched"]):
+        left, right = st.columns([5, 1.4])
+        left.caption(f"맞는 문헌을 찾지 못한 새 PDF · {ui.md(Path(name).name)}")
+        if right.button("그래도 등록", key="wb_watch_add_" + name):
+            data = acquire.read_download(name)
+            if data:
+                acquire.register(project, data, Path(name).name)
+            state["unmatched"].remove(name)
+            changed = True
+    if changed:
+        st.rerun()
+
+
+def _manual_link(project, pending):
+    """When neither DOI nor title gave a single match: the person says which PDF is which."""
+    from deep_research import acquire
+    linked = {c.get("source_id") for c in project.collection() if c.get("source_id")}
+    sources = [s for s in project.catalog() if s["id"] not in linked]
+    if not sources:
+        return
+    with st.expander("올린 PDF와 직접 묶기"):
+        a, b = st.columns(2)
+        cand = a.selectbox("PDF를 기다리는 문헌", range(len(pending)), key="wb_link_cand",
+                           format_func=lambda i: ui.short(pending[i]["title"], 60))
+        source_id = b.selectbox("등록된 PDF", [s["id"] for s in sources], key="wb_link_src",
+                                format_func=lambda sid: ui.short(next(s["title"] for s in sources if s["id"] == sid), 60))
+        if st.button("묶기", key="wb_link_btn"):
+            acquire.link(project, source_id, pending[cand], "직접")
+            _say(f"「{ui.md(ui.short(pending[cand]['title'], 40))}」과 묶었습니다.")
+            st.rerun()
 
 
 def _import_popover(project):
@@ -382,10 +479,13 @@ def _import_popover(project):
     st.markdown("**내 PDF 올리기**")
     files = st.file_uploader("PDF (여러 개 가능)", type="pdf", accept_multiple_files=True, key="wb_pdfs")
     if st.button("등록", disabled=not files, key="wb_pdf_add"):
+        from deep_research.acquire import register
+        linked = 0
         for file in files:
             with st.spinner(file.name + " 색인 중"):
-                project.add_pdf(file.getvalue(), file.name)
-        _say(f"PDF {len(files)}건을 등록했습니다. 포함·제외는 「단계별 보기 → 2 · 문헌 선별」에서, 또는 아래 일괄 포함으로.")
+                linked += register(project, file.getvalue(), file.name)[1] is not None
+        _say(f"PDF {len(files)}건을 등록했습니다." + (f" PDF를 기다리던 문헌 {linked}건과 묶었습니다." if linked else "")
+             + " 포함·제외는 「단계별 보기 → 2 · 문헌 선별」에서, 또는 아래 일괄 포함으로.")
         st.rerun()
     st.markdown("**Zotero·EndNote에서 내보낸 목록(.ris / .bib)**")
     ref = st.file_uploader("RIS 또는 BibTeX", type=["ris", "bib", "txt"], key="wb_ref")
