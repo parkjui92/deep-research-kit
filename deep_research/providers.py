@@ -284,6 +284,19 @@ def _needs_login(text):
     return "Not logged in" in text or "/login" in text
 
 
+def _cli(args, timeout, cwd=None):
+    """Run the claude CLI and read its output as UTF-8. Without an explicit encoding, Korean
+    Windows decodes with cp949 in a reader thread; the error is swallowed there and stdout and
+    stderr come back as None (#25)."""
+    import subprocess
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          timeout=timeout, env=claude_env(), stdin=subprocess.DEVNULL)
+
+
+def _output(result):
+    return ((result.stderr or "") + "\n" + (result.stdout or "")).strip()
+
+
 def claude_code_status():
     """Is the CLI installed and runnable? Uses `--version`, which costs no model usage.
     Login is checked by the real run, which reports it in plain words."""
@@ -293,11 +306,11 @@ def claude_code_status():
     if not exe:
         return {"available": False, "reason": "Claude Code(claude 명령)가 설치돼 있지 않습니다."}
     try:
-        probe = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=20, env=claude_env())
+        probe = _cli([exe, "--version"], timeout=20)
     except (subprocess.TimeoutExpired, OSError) as exc:
         return {"available": False, "reason": f"Claude Code 응답 없음({type(exc).__name__})."}
     if probe.returncode != 0:
-        text = (probe.stdout + probe.stderr).strip()
+        text = _output(probe)
         return {"available": False, "reason": LOGIN_HINT if _needs_login(text) else "Claude Code 실행 오류: " + text[:200]}
     return {"available": True, "reason": ""}
 
@@ -371,6 +384,36 @@ def agent_busy(project):
         return True
 
 
+def agent_prompt(project, run_id, kind="extraction"):
+    """One line, no newlines. npm installs Claude Code on Windows as claude.cmd, and cmd.exe ends
+    the command line at the first newline inside an argument: the project, the run and every
+    option after the prompt were dropped (#32). The project is named relative to the working
+    folder so no space or special character from the person's own path reaches cmd.exe."""
+    root = project.root.resolve().parent.parent
+    where = f"/deep-research 프로젝트 「{project.root.resolve().relative_to(root).as_posix()}」 · 실행 「{run_id}」 · "
+    if kind == "extraction":
+        task = ("requests/의 원문을 읽고 모든 문헌을 추출해 import-extraction으로 가져와 줘. "
+                "사람의 검토 상태는 바꾸지 마. 끝나면 가져온 문헌 수만 한 줄로 보고해.")
+    else:
+        task = "synthesis-request.json의 채택 근거를 종합하고 import-synthesis로 가져와 줘. 끝나면 주장 수만 한 줄로 보고해."
+    return where + task
+
+
+def _missing_results(project, run_id, kind, synthesis_id):
+    """What the run should have saved but did not. A zero exit code is not proof: a headless
+    agent that waits for a permission nobody can grant also exits 0 (#24)."""
+    folder = project.run_dir(run_id)
+    if kind == "extraction":
+        run = read_json(folder / "run.json")
+        done = sum((folder / "responses" / (r["source_id"] + ".json")).exists() for r in run["requests"])
+        if done < len(run["requests"]):
+            return f"문헌 {len(run['requests'])}편 중 {done}편의 결과만 저장됐습니다."
+        return ""
+    if not synthesis_id or not (folder / "synthesis" / (synthesis_id + ".json")).exists():
+        return "종합 결과가 저장되지 않았습니다."
+    return ""
+
+
 def run_claude_code(project, run_id, kind="extraction", timeout=1800):
     """Run the project's /deep-research skill headlessly for one run. The skill itself imports
     responses through the CLI, so the project state is updated by the same core code."""
@@ -379,22 +422,20 @@ def run_claude_code(project, run_id, kind="extraction", timeout=1800):
     exe = shutil.which("claude")
     if not exe:
         raise ValueError("Claude Code(claude 명령)를 찾지 못했습니다.")
+    folder = project.run_dir(run_id)
+    if not (folder / "run.json").exists():
+        raise ValueError(f"실행 {run_id}을 찾지 못했습니다. 「AI로 추출」을 다시 눌러 새 실행을 만드세요.")
+    synthesis_id = None
+    if kind != "extraction" and (folder / "synthesis-request.json").exists():
+        synthesis_id = read_json(folder / "synthesis-request.json")["request_id"]
     root = project.root.resolve().parent.parent
-    if kind == "extraction":
-        prompt = (f"/deep-research\n프로젝트: {project.root.resolve()}\n실행: {run_id}\n"
-                  "requests/의 원문을 읽고 모든 문헌을 추출해 import-extraction으로 가져와 줘. 사람의 검토 상태는 바꾸지 마. 끝나면 가져온 문헌 수만 한 줄로 보고해.")
-    else:
-        prompt = (f"/deep-research\n프로젝트: {project.root.resolve()}\n실행: {run_id}\n"
-                  "synthesis-request.json의 채택 근거를 종합하고 import-synthesis로 가져와 줘. 끝나면 주장 수만 한 줄로 보고해.")
+    args = [exe, "-p", agent_prompt(project, run_id, kind), "--output-format", "text",
+            "--allowedTools", *agent_tools(project, run_id), "--add-dir", str(project.root.resolve())]
     from filelock import Timeout
-    env = claude_env()
     before = _review_state(project, run_id)
     try:
         with agent_lock(project):
-            result = subprocess.run([exe, "-p", prompt, "--output-format", "text", "--allowedTools", *agent_tools(project, run_id),
-                                     "--add-dir", str(project.root.resolve())],
-                                    cwd=root, capture_output=True, text=True, timeout=timeout, env=env,
-                                    stdin=subprocess.DEVNULL)
+            result = _cli(args, timeout=timeout, cwd=root)
     except Timeout:
         raise ValueError("이 프로젝트에서 AI 실행이 이미 진행 중입니다. 끝난 뒤 「저장된 응답 새로 읽기」로 결과를 확인하세요.") from None
     except subprocess.TimeoutExpired:
@@ -403,7 +444,14 @@ def run_claude_code(project, run_id, kind="extraction", timeout=1800):
         _restore_reviews(project, run_id, before)
     if result is None:
         raise ValueError("Claude Code 실행이 제한 시간을 넘겼습니다. 이미 가져온 문헌은 저장돼 있으니 「저장된 응답 새로 읽기」 뒤 다시 실행하세요.")
+    text = _output(result)
     if result.returncode != 0:
-        text = (result.stderr or result.stdout).strip()
         raise ValueError(LOGIN_HINT if _needs_login(text) else "Claude Code 실행 실패: " + text[:300])
+    if missing := _missing_results(project, run_id, kind, synthesis_id):
+        last = " ".join(text.split())[-300:] or "출력 없음"
+        if _needs_login(text):
+            raise ValueError(LOGIN_HINT)
+        raise ValueError(f"Claude Code가 끝났지만 {missing} Claude의 마지막 말: 「{last}」 "
+                         "파일 쓰기 권한 확인에서 멈췄거나 중간에 그쳤을 수 있습니다. 저장된 결과는 그대로 있습니다. "
+                         "다시 실행하거나, 웹 AI에 요청문을 붙여 넣는 경로로 남은 문헌을 이어 가세요.")
     return (result.stdout or "").strip()[:500]

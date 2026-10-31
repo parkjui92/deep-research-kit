@@ -413,14 +413,23 @@ def _extract_popover(project, runs, included, config):
                 try:
                     run_claude_code(project, run_id, "extraction")
                 except ValueError as exc:
-                    st.error(str(exc))
                     st.session_state["wb_pending_run"] = run_id
+                    st.session_state["wb_ai_error"] = str(exc)
+                    if any((project.run_dir(run_id) / "responses").glob("*.json")):
+                        st.session_state["wb_run"] = run_id  # show what was saved before it stopped
                     if "/login" in str(exc):  # installed but signed out: show the other ways to continue
                         st.session_state["cc_status"] = {"available": False, "reason": str(exc)}
-                    return
-            st.session_state["wb_run"] = run_id
-            _say("추출이 끝났습니다. 비교표에서 값을 눌러 원문과 대조하세요.")
-            st.rerun()
+                else:
+                    st.session_state["wb_run"] = run_id
+                    st.session_state.pop("wb_ai_error", None)
+                    _say("추출이 끝났습니다. 비교표에서 값을 눌러 원문과 대조하세요.")
+                    st.rerun()
+        pending = st.session_state.get("wb_pending_run")
+        if (error := st.session_state.get("wb_ai_error")) and pending in project.runs():
+            st.error(error, icon=":material/error:")
+            if flow.manifest(project, pending)["state"] == "awaiting_extraction":
+                with st.expander("남은 문헌을 웹 AI(Claude·ChatGPT 등)로 이어 하기"):
+                    _web_ai_pack(project, pending)
     else:
         st.warning("**이 컴퓨터에는 AI 실행 도구(Claude Code)가 없거나 로그인돼 있지 않습니다.** 아래 셋 중 하나로 진행합니다.", icon=":material/info:")
         if example:
@@ -433,27 +442,7 @@ def _extract_popover(project, runs, included, config):
                 st.error(str(exc))
         pending = st.session_state.get("wb_pending_run")
         if pending and pending in project.runs():
-            run = flow.manifest(project, pending)
-            titles = {r["source_id"]: ui.short(project.source(r["source_id"])["title"], 50) for r in run["requests"]}
-            done_ids = {s for s in titles if (project.run_dir(pending) / "responses" / (s + ".json")).exists()}
-            target = st.selectbox("문헌", list(titles), format_func=lambda s: ("✓ " if s in done_ids else "○ ") + titles[s], key="wb_pack_src")
-            pack = flow.prompt_pack(project, pending, target)
-            st.download_button(f"요청문 묶음 내려받기 · {len(pack) // 1000}천 자", pack, f"{project.root.name}_{target}_prompt.txt", key="wb_pack_dl", width="stretch", icon=":material/content_copy:")
-            st.caption("받은 .txt를 웹 AI 대화창에 통째로 붙여 넣으세요(긴 글 허용 모델 권장). AI가 돌려준 JSON을 아래에 붙여 넣고 「가져오기」. 응답은 원문과 대조해 저장됩니다.")
-            reply = st.text_area("AI 응답(JSON) 붙여넣기", key="wb_pack_reply", height=120, placeholder='{"request_id": "...", "rows": [...]}')
-            if st.button("가져오기", key="wb_pack_import", disabled=not reply.strip()):
-                try:
-                    text = reply.strip()
-                    if text.startswith("```"):
-                        text = text.strip("`").split("\n", 1)[-1].rsplit("```", 1)[0]
-                    flow.import_extraction(project, pending, json.loads(text))
-                except (ValueError, json.JSONDecodeError) as exc:
-                    st.error(f"가져오지 못했습니다: {exc}")
-                else:
-                    st.session_state["wb_run"] = pending
-                    st.session_state.pop("wb_pack_reply", None)
-                    _say(f"{titles[target]} 응답을 가져왔습니다. 남은 문헌도 같은 방법으로.")
-                    st.rerun()
+            _web_ai_pack(project, pending)
             with st.expander("Claude Code를 쓰는 사람에게 넘길 한 줄 요청문"):
                 st.code(f"/deep-research\n프로젝트: {project.root}\n실행: {pending}\nrequests/의 원문을 읽고 모든 문헌을 추출해 import-extraction으로 가져와 줘. 사람의 검토 상태는 바꾸지 마.",
                         language=None, wrap_lines=True)
@@ -492,6 +481,31 @@ def _extract_popover(project, runs, included, config):
             st.rerun()
 
 
+def _web_ai_pack(project, pending):
+    """One document at a time: download the request+source pack, paste the chat AI's JSON back."""
+    run = flow.manifest(project, pending)
+    titles = {r["source_id"]: ui.short(project.source(r["source_id"])["title"], 50) for r in run["requests"]}
+    done_ids = {s for s in titles if (project.run_dir(pending) / "responses" / (s + ".json")).exists()}
+    target = st.selectbox("문헌", list(titles), format_func=lambda s: ("✓ " if s in done_ids else "○ ") + titles[s], key="wb_pack_src")
+    pack = flow.prompt_pack(project, pending, target)
+    st.download_button(f"요청문 묶음 내려받기 · {len(pack) // 1000}천 자", pack, f"{project.root.name}_{target}_prompt.txt", key="wb_pack_dl", width="stretch", icon=":material/content_copy:")
+    st.caption("받은 .txt를 웹 AI 대화창에 통째로 붙여 넣으세요(긴 글 허용 모델 권장). AI가 돌려준 JSON을 아래에 붙여 넣고 「가져오기」. 응답은 원문과 대조해 저장됩니다.")
+    reply = st.text_area("AI 응답(JSON) 붙여넣기", key="wb_pack_reply", height=120, placeholder='{"request_id": "...", "rows": [...]}')
+    if st.button("가져오기", key="wb_pack_import", disabled=not reply.strip()):
+        try:
+            text = reply.strip()
+            if text.startswith("```"):
+                text = text.strip("`").split("\n", 1)[-1].rsplit("```", 1)[0]
+            flow.import_extraction(project, pending, json.loads(text))
+        except (ValueError, json.JSONDecodeError) as exc:
+            st.error(f"가져오지 못했습니다: {exc}")
+        else:
+            st.session_state["wb_run"] = pending
+            st.session_state.pop("wb_pack_reply", None)
+            _say(f"{titles[target]} 응답을 가져왔습니다. 남은 문헌도 같은 방법으로.")
+            st.rerun()
+
+
 def _export_popover(project, runs):
     if not runs:
         st.caption("추출 결과가 생기면 여기서 내려받습니다.")
@@ -515,8 +529,9 @@ def _export_popover(project, runs):
                 try:
                     run_claude_code(project, run_id, "synthesis")
                 except ValueError as exc:
-                    st.error(str(exc))
-            st.rerun()
+                    st.error(str(exc))  # no rerun: it would clear the message
+                else:
+                    st.rerun()
         else:
             st.warning(status["reason"] + " 요청문은 「단계별 보기 → 5 · 종합」에 있습니다.")
     current = flow.current_synthesis(project, run_id)
