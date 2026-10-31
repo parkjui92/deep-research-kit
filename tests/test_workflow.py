@@ -380,3 +380,41 @@ def test_collection_keeps_metadata_only_candidates(project):
     # Same DOI again replaces the earlier row instead of duplicating it.
     collect(project, {"title": "No PDF here v2", "authors": [], "year": 2021, "venue": "", "doi": "10.9/none", "url": "", "pdf_url": "", "oa": False, "provider": "test"})
     assert len(project.collection()) == 1 and project.collection()[0]["title"] == "No PDF here v2"
+
+
+def test_quote_running_onto_next_page_is_located_on_both_pages(tmp_path):
+    buf = io.BytesIO()
+    pdf = canvas.Canvas(buf)
+    pdf.drawString(50, 60, "The randomized trial found that completion time")
+    pdf.showPage()
+    pdf.drawString(50, 750, "increased by nineteen percent in mature projects.")
+    pdf.showPage()
+    pdf.save()
+    p = Project(tmp_path / "cross").initialize()
+    sid = p.add_pdf(buf.getvalue(), "cross.pdf", "Cross-page study")
+    index = p.index(sid)
+    first = index["passages"][0]["id"]
+    found = locate_quote(index, first, "completion time increased by nineteen percent")
+    assert found["status"] == "exact_normalized" and found["continued"]
+    assert {b["page"] for b in found["boxes"]} == {1, 2} and found["pages"] == [1, 2]
+    # Cited from the second page's passage, the quote does not start there: not located.
+    second = index["passages"][1]["id"]
+    assert locate_quote(index, second, "completion time increased by nineteen percent")["status"] == "unmatched"
+
+
+def test_quote_past_a_passage_window_is_located(tmp_path):
+    words = [f"token{i:03d}" for i in range(300)]
+    buf = io.BytesIO()
+    pdf = canvas.Canvas(buf)
+    pdf.setFont("Helvetica", 5)
+    for row in range(0, 300, 12):
+        pdf.drawString(20, 800 - row * 2, " ".join(words[row:row + 12]))
+    pdf.showPage()
+    pdf.save()
+    p = Project(tmp_path / "window").initialize()
+    sid = p.add_pdf(buf.getvalue(), "window.pdf", "Long page")
+    index = p.index(sid)
+    assert len([x for x in index["passages"] if x["page"] == 1]) == 2  # windows 0-219 and 180-299
+    quote = " ".join(words[170:230])  # 60 words: in neither window on its own
+    found = locate_quote(index, index["passages"][0]["id"], quote)
+    assert found["status"] == "exact_normalized" and found["continued"] and found["pages"] == [1]

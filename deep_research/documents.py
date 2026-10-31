@@ -80,26 +80,61 @@ def locate_quote(index: dict, passage_id: str, quote: str) -> dict:
         joined, joined_mapping = _haystack(words, dehyphenate=True)
         if joined != haystack and (joined_hits := _find(needle, joined)):
             hits, mapping, dehyphenated = joined_hits, joined_mapping, True
+    if not hits:
+        continued = _locate_continued(index, passage, needle)
+        if continued is not None:
+            return {**result, **continued, "page_width": page["width"], "page_height": page["height"],
+                    "context": passage["text"], "source_sha256": index["sha256"]}
     if len(hits) != 1:
         return {**result, "status": "ambiguous" if hits else "unmatched"}
     start = hits[0]
-    selected = words[mapping[start]:mapping[start + len(needle) - 1] + 1]
+    selected = [{**w, "page": passage["page"]} for w in words[mapping[start]:mapping[start + len(needle) - 1] + 1]]
+    return {**result, "status": "exact_normalized", "dehyphenated": dehyphenated, "boxes": _boxes(selected),
+            "page_width": page["width"], "page_height": page["height"],
+            "context": passage["text"], "source_sha256": index["sha256"]}
+
+
+def _locate_continued(index: dict, passage: dict, needle: str):
+    """A quote that starts in the cited passage and runs past its end: into the rest of the
+    page (passages are overlapping word windows) and on into the next page. Still an exact
+    match on the printed words in reading order; it must start inside the cited passage and
+    occur only once in the stretch searched. Returns None when that does not hold."""
+    number = passage["page"]
+    words = [{**w, "page": number} for w in index["pages"][number - 1]["words"][passage["word_start"]:]]
+    if number < len(index["pages"]):
+        following = index["pages"][number]
+        if following.get("anchors_supported", True):
+            words += [{**w, "page": number + 1} for w in following["words"][:220]]
+    own = passage["word_end"] - passage["word_start"]
+    for dehyphenate in (False, True):
+        haystack, mapping = _haystack(words, dehyphenate=dehyphenate)
+        hits = _find(needle, haystack)
+        if not hits:
+            continue
+        if len(hits) != 1 or mapping[hits[0]] >= own:
+            return None
+        start = hits[0]
+        selected = words[mapping[start]:mapping[start + len(needle) - 1] + 1]
+        return {"status": "exact_normalized", "dehyphenated": dehyphenate, "continued": True,
+                "boxes": _boxes(selected), "pages": sorted({w["page"] for w in selected})}
+    return None
+
+
+def _boxes(selected: list) -> list:
     boxes = []
     for word in selected:
-        if boxes and abs(boxes[-1]["y"] - word["top"]) < 3:
+        if boxes and boxes[-1]["page"] == word["page"] and abs(boxes[-1]["y"] - word["top"]) < 3:
             b = boxes[-1]
             # Do not bridge columns with a giant rectangle.
             if 0 <= word["x0"] - (b["x"] + b["width"]) < 30:
                 b["width"] = word["x1"] - b["x"]
                 b["height"] = max(b["height"], word["bottom"] - b["y"])
                 continue
-        boxes.append({"page": passage["page"], "x": word["x0"], "y": word["top"],
+        boxes.append({"page": word["page"], "x": word["x0"], "y": word["top"],
                       "width": word["x1"] - word["x0"],
                       "height": word["bottom"] - word["top"],
                       "color": "rgba(245, 191, 69, 0.35)"})
-    return {**result, "status": "exact_normalized", "dehyphenated": dehyphenated, "boxes": boxes,
-            "page_width": page["width"], "page_height": page["height"],
-            "context": passage["text"], "source_sha256": index["sha256"]}
+    return boxes
 
 
 def locate_anywhere(index: dict, quote: str) -> dict:
