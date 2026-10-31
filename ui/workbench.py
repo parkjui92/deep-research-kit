@@ -186,7 +186,8 @@ def _detail(project, run_id, row, source, field_name, rows):
                               format_func=REVIEW_CHOICES.get, horizontal=True,
                               help="채택 = 원문과 맞아 그대로 씀 · 수정 후 채택 = 고쳐 씀(원래 값 보존) · 보류 = 더 확인 · 제외 = 원문과 다르거나 쓸 수 없음")
             checked = st.checkbox("원문의 앞뒤 문맥을 읽고 판단했습니다 (채택·수정 후 채택에 필수)")
-            value = st.text_area("수정한 값 (수정 후 채택일 때)", row["review"].get("edited_value") or row["value"] or "", height=70)
+            value = st.text_area("수정한 값 (수정 후 채택일 때)", row["review"].get("edited_value") or row["value"] or "", height=70,
+                                 help="AI 값이 채워져 있습니다. 고쳤다면 판정을 「수정 후 채택」으로 고르세요. 「채택」은 AI 값을 그대로 씁니다.")
             note = st.text_input("이유 한 줄 (필수)", row["review"].get("note", ""), placeholder="예: 표 3의 값과 일치 / 단위가 빠져 보완")
             reviewer = st.text_input("검토자 (필수 · 한 번 적으면 이 프로젝트에 기억)", st.session_state.get("reviewer") or project.reviewer())
             if st.form_submit_button("저장하고 다음 미검토로", type="primary", icon=":material/check:"):

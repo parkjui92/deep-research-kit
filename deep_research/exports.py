@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from .project import read_json
-from .workflow import accepted, current_synthesis, evidence, manifest
+from .workflow import accepted, current_synthesis, evidence, manifest, reviewed_value
 
 WORD = {"exact_normalized": "글자 그대로 일치", "multiple": "여러 곳에서 일치", "unmatched": "원문에서 못 찾음",
         "ambiguous": "같은 문장이 여러 곳", "too_short": "구절이 너무 짧음", "invalid_passage": "구간 없음",
@@ -66,7 +66,7 @@ def bibliography(project, run_id):
 
 
 def display_value(row):
-    return row["review"].get("edited_value") if row["review"]["status"] == "edit" else row["value"]
+    return reviewed_value(row)
 
 
 def cell(text):

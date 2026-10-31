@@ -422,7 +422,7 @@ def review_page(project):
                 checked = st.checkbox("필수(채택·수정 후 채택 때) · 오른쪽 원문의 앞뒤 문맥을 읽고 추출값을 뒷받침하는지 판단했습니다.",
                                       help="채택·수정 후 채택은 이 표시가 있어야 저장됩니다. 보류·제외는 없어도 됩니다.")
                 value = st.text_area("수정 후 채택할 값", row["review"].get("edited_value") or row["value"] or "",
-                                     help="‘수정 후 채택’일 때만 저장됩니다. 원래 AI 추출값은 그대로 보존됩니다.")
+                                     help="‘수정 후 채택’일 때만 저장됩니다. 원래 AI 추출값은 그대로 보존됩니다. 「채택」을 고르면 이 칸은 AI 값 그대로 두거나 비우세요.")
                 note = st.text_area("판단 이유·조건·한계 (필수)", row["review"].get("note", ""))
                 reviewer = st.text_input("검토자 (필수 · 한 번 적으면 유지)", st.session_state.get("reviewer", ""))
                 if st.form_submit_button("판단 저장", type="primary", help="저장하면 다음 미검토 근거로 이동합니다."):

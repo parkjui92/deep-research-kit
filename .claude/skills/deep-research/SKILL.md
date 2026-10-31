@@ -31,7 +31,7 @@ description: Deep Research Kit 프로젝트의 PDF 원문을 읽고 항목별 �
 ## 종합
 
 1. 사용자가 근거 검토를 완료했다면 `uv run drk --project <project> prepare-synthesis <run>`으로 최신 요청을 만든다.
-2. `synthesis-request.json`의 evidence만 사용한다. `edit` 근거는 `review.edited_value`를 사용하면서 원문·검토 메모의 한계를 보존한다.
+2. `synthesis-request.json`의 evidence만 사용한다. 각 근거의 `value`는 사람이 검토한 뒤의 값이다(`edit` 근거는 사람이 고친 값). `ai_value`는 고치기 전 AI 값으로 참고만 하고 주장에 쓰지 않는다. 원문·검토 메모의 한계를 보존한다.
 3. 실제 연구 단위인 `study_id`를 기준으로 중복 보고서를 처리한다. 다른 대상·과업·측정의 결과 차이는 자동으로 상충이라고 판단하지 않는다.
 4. 주장마다 `evidence_ids`를 연결하고, 일치·상충·해석·남은 질문을 구분한다. 보류·제외 근거를 결론의 지지 근거로 몰래 사용하지 않는다.
 5. `drafts/synthesis.json`에 응답을 쓰고 `uv run drk --project <project> import-synthesis <run> <response_file>`로 등록한다. 검토가 바뀌어 실패하면 최신 요청으로 다시 작성한다.

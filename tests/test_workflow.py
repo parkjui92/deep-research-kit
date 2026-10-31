@@ -537,3 +537,28 @@ def test_rotated_margin_stamp_is_one_readable_line(tmp_path):
     assert "arXiv:2507.09089v2 [cs.AI] 25 Jul 2025" in text
     stamp = locate_quote(index, index["passages"][0]["id"], "arXiv:2507.09089v2 [cs.AI] 25 Jul 2025")
     assert stamp["status"] == "exact_normalized"
+
+
+def test_changed_value_saved_as_accept_is_refused_not_dropped(project):
+    run = extracted(project)
+    row = w.evidence(project, run)[0]
+    with pytest.raises(ValueError, match="수정 후 채택"):
+        w.review(project, run, row["id"], "accept", "Checked", "Person", "Different finding")
+    w.review(project, run, row["id"], "accept", "Checked", "Person", "Test finding\n")  # unchanged, only whitespace
+    w.review(project, run, row["id"], "accept", "Checked", "Person", "")
+    assert w.evidence(project, run)[0]["review"]["status"] == "accept"
+
+
+def test_synthesis_request_carries_the_corrected_value(project):
+    run = extracted(project)
+    first, second = w.evidence(project, run)[:2]
+    w.review(project, run, first["id"], "edit", "Unit was wrong", "Person", "19% longer, not shorter")
+    w.review(project, run, second["id"], "accept", "Matches", "Person")
+    request = w.prepare_synthesis(project, run)
+    by_id = {e["id"]: e for e in request["evidence"]}
+    assert by_id[first["id"]]["value"] == "19% longer, not shorter"
+    assert by_id[first["id"]]["ai_value"] == "Test finding"
+    assert by_id[second["id"]]["value"] == by_id[second["id"]]["ai_value"] == "Test finding"
+    assert "value는 사람이 검토한 뒤의 값" in request["instructions"]
+    saved = read_json(project.run_dir(run) / "synthesis-request.json")
+    assert {e["id"]: e["value"] for e in saved["evidence"]} == {e["id"]: e["value"] for e in request["evidence"]}
