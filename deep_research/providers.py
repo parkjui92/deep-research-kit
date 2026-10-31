@@ -4,7 +4,7 @@ import os
 
 import httpx
 
-from .project import read_json
+from .project import atomic_text, read_json, write_json
 from .workflow import import_extraction, import_synthesis, manifest, prepare_synthesis
 
 
@@ -284,6 +284,57 @@ def claude_code_status():
     return {"available": True, "reason": ""}
 
 
+PENDING_REVIEW = {"status": "pending", "note": "", "reviewer": ""}
+
+
+def agent_tools(project, run_id):
+    """The headless agent reads sources, writes drafts for this run, and talks to the core only
+    through `drk`, which validates every import. The sources it reads are untrusted, so it gets
+    no general code execution and no write access to review state or the app itself."""
+    root = project.root.resolve().parent.parent
+    drafts = project.run_dir(run_id) / "drafts"
+    drafts.mkdir(parents=True, exist_ok=True)
+    pattern = "./" + drafts.resolve().relative_to(root).as_posix() + "/**"
+    return ["Read", "Glob", "Grep", f"Edit({pattern})", "Bash(uv run drk:*)"]
+
+
+def _review_state(project, run_id):
+    folder = project.run_dir(run_id)
+    reviews = folder / "reviews.json"
+    rows = read_json(folder / "evidence.json") if (folder / "evidence.json").exists() else []
+    return {"reviews": reviews.read_text(encoding="utf-8") if reviews.exists() else None,
+            "revision": read_json(folder / "run.json").get("review_revision"),
+            "rows": {e["id"]: e["review"] for e in rows}}
+
+
+def _restore_reviews(project, run_id, before):
+    """Review state belongs to people. If an agent run changed it, put it back and say so;
+    imported values stay, every new one still pending."""
+    folder = project.run_dir(run_id)
+    with project.lock:
+        rows = read_json(folder / "evidence.json") if (folder / "evidence.json").exists() else []
+        run = read_json(folder / "run.json")
+        reviews = folder / "reviews.json"
+        now_reviews = reviews.read_text(encoding="utf-8") if reviews.exists() else None
+        changed = now_reviews != before["reviews"] or run.get("review_revision") != before["revision"]
+        for row in rows:
+            expected = before["rows"].get(row["id"], PENDING_REVIEW)
+            if row["review"] != expected:
+                row["review"] = dict(expected)
+                changed = True
+        if not changed:
+            return
+        write_json(folder / "evidence.json", rows)
+        if before["reviews"] is None:
+            reviews.unlink(missing_ok=True)
+        else:
+            atomic_text(reviews, before["reviews"])
+        run["review_revision"] = before["revision"]
+        write_json(folder / "run.json", run)
+    raise ValueError("Claude Code 실행 중 사람의 검토 기록이 바뀌어 원래대로 되돌렸습니다. "
+                     "가져온 추출값은 남아 있고 모두 미검토입니다. 원문 PDF에 숨은 지시문이 있었는지 확인하세요.")
+
+
 def run_claude_code(project, run_id, kind="extraction", timeout=1800):
     """Run the project's /deep-research skill headlessly for one run. The skill itself imports
     responses through the CLI, so the project state is updated by the same core code."""
@@ -300,12 +351,17 @@ def run_claude_code(project, run_id, kind="extraction", timeout=1800):
         prompt = (f"/deep-research\n프로젝트: {project.root.resolve()}\n실행: {run_id}\n"
                   "synthesis-request.json의 채택 근거를 종합하고 import-synthesis로 가져와 줘. 끝나면 주장 수만 한 줄로 보고해.")
     env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
-    allowed = ["Read", "Glob", "Grep", "Write", "Edit", "Bash(uv run drk:*)", "Bash(uv run python:*)", "Bash(python3:*)", "Bash(mkdir:*)", "Bash(ls:*)", "Bash(cat:*)"]
+    before = _review_state(project, run_id)
     try:
-        result = subprocess.run([exe, "-p", prompt, "--output-format", "text", "--allowedTools", *allowed, "--add-dir", str(project.root.resolve())],
+        result = subprocess.run([exe, "-p", prompt, "--output-format", "text", "--allowedTools", *agent_tools(project, run_id),
+                                 "--add-dir", str(project.root.resolve())],
                                 cwd=root, capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
-        raise ValueError("Claude Code 실행이 제한 시간을 넘겼습니다. 이미 가져온 문헌은 저장돼 있으니 「저장된 응답 새로 읽기」 뒤 다시 실행하세요.") from None
+        result = None
+    finally:
+        _restore_reviews(project, run_id, before)
+    if result is None:
+        raise ValueError("Claude Code 실행이 제한 시간을 넘겼습니다. 이미 가져온 문헌은 저장돼 있으니 「저장된 응답 새로 읽기」 뒤 다시 실행하세요.")
     if result.returncode != 0:
         raise ValueError("Claude Code 실행 실패: " + (result.stderr or result.stdout).strip()[:300])
     return (result.stdout or "").strip()[:500]

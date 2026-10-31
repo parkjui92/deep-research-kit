@@ -18,6 +18,8 @@ EXTRACTION_INSTRUCTIONS = """제공된 문헌을 읽고 조사 질문과 항목�
 각 source_id와 field_id 쌍마다 정확히 한 행을 반환하세요. 찾지 못하면 value=null,
 quotes=[]로 쓰고 note에 이유를 적으세요. 값은 한국어로, quote는 원문 그대로 적으세요.
 quote는 지정한 passage_id 안에 실제 존재하는 연속 문구여야 합니다.
+인용할 문장이 쪽이나 구간 경계를 넘으면 구간마다 있는 부분으로 나누어
+quotes에 여러 개로 넣으세요. 한 quote가 두 구간에 걸치면 원문 위치를 찾지 못합니다.
 수치의 단위, 조건, 대상과 불확실성을 보존하세요. 좌표와 검토 결과는 만들지 마세요.
 응답은 JSON 객체 하나입니다: {"request_id":"요청 ID", "rows":[
 {"source_id":"s_...", "field_id":"finding", "value":"추출값",
