@@ -86,9 +86,12 @@ def locate_quote(index: dict, passage_id: str, quote: str) -> dict:
     if len(needle) < 8:
         return {**result, "status": "too_short"}
     page = index["pages"][passage["page"] - 1]
-    if not page.get("anchors_supported", True):
-        return {**result, "status": "unsupported_page_geometry"}
     words = page["words"][passage["word_start"]:passage["word_end"]]
+    if not page.get("anchors_supported", True):
+        # Rotated or cropped page: no highlight can be drawn, so it stays unconfirmed. Whether the
+        # words themselves are in the passage is still worth telling the reviewer (#22).
+        found = any(_find(needle, *_haystack(words, dehyphenate=d)) for d in (False, True))
+        return {**result, "status": "unsupported_page_geometry", "text_found": found}
     haystack, mapping, glued = _haystack(words)
     hits = _find(needle, haystack, mapping, glued)
     dehyphenated = False

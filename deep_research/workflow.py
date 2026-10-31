@@ -70,7 +70,8 @@ def prepare(project: Project):
                        "page_scope": {"from": 1, "to": min(limit, len(index["pages"])),
                                       "total": len(index["pages"])}}
             # A missing text layer is explicit, not a successful empty extraction.
-            request["warnings"] = [f"PDF {p['page']}쪽: 텍스트 없음 또는 좌표 미지원"
+            request["warnings"] = [f"PDF {p['page']}쪽: 텍스트 없음" if not p["words"] else
+                f"PDF {p['page']}쪽: 회전·잘린 쪽(좌표 미지원). 글자는 읽을 수 있지만 근거 위치를 확인할 수 없어 사람이 채택할 수 없음"
                 for p in index["pages"] if not p["words"] or not p["anchors_supported"]]
             if limit < len(index["pages"]):
                 request["warnings"].insert(0, f"조사 범위: PDF 1~{limit}쪽 / 전체 {len(index['pages'])}쪽. 나머지 페이지는 읽지 않습니다.")

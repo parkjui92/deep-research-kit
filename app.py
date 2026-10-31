@@ -40,7 +40,8 @@ def make_example(folder: str, title: str, with_table: bool):
     st.session_state["project_name"] = folder
     remember(folder)
     if with_table:
-        st.session_state["mode"] = "작업 화면"
+        # Set before the sidebar's mode switch (key mode_pick) is drawn in the next run.
+        st.session_state["mode"] = st.session_state["mode_pick"] = "작업 화면"
         st.session_state["flash"] = "논문 3편의 비교표입니다. 값을 누르면 오른쪽에 원문이 열립니다. 이상한 값 하나를 원문에서 확인해 고쳐 보고, 「항목 추가」로 비교 항목을 하나 더해 보세요."
     else:
         st.session_state["stage_value"] = ui.STAGES[1]
@@ -109,7 +110,7 @@ def main():
             Project(PROJECTS / "my-research").initialize("나의 문헌조사")
             st.session_state["project_name"] = "my-research"
             remember("my-research")
-            st.session_state["mode"] = "작업 화면"
+            st.session_state["mode"] = st.session_state["mode_pick"] = "작업 화면"
             st.session_state["flash"] = "빈 프로젝트를 만들었습니다. 「문헌 찾기」로 검색해 담거나 「PDF 가져오기」로 올린 뒤 「AI로 추출」을 누르세요."
             st.rerun()
         if b.button("논문 3편 예제 체험 · 바로 비교표 보기", width="stretch"):
@@ -121,6 +122,11 @@ def main():
             with column, st.container(border=True):
                 st.markdown(f"**{head}**")
                 st.caption(body)
+        with st.container(border=True):
+            st.markdown("**흐름** · 문헌 모으기 → 쓸 논문 고르기 → AI로 추출 → 값마다 원문 확인(채택·수정 후 채택·보류·제외) → (선택) 종합 → 내보내기")
+            st.markdown("**끝에 남는 것** · 결과 ZIP 하나: 보고서(research.md) · 비교표(comparison.csv, 문헌×항목) · "
+                        "근거 기록(evidence.csv, 값마다 원문 쪽·검토자·이유) · 전체 기록(research.json). 원본 PDF는 고르면 함께 담깁니다.")
+            st.caption("채택한 값만 비교표와 종합에 들어갑니다. 미검토·보류 값은 '확인 필요'로 따로 남습니다.")
         return
     title = read_json(project.root / "project.json")["title"]
     if st.session_state.get("mode", "작업 화면") == "작업 화면":

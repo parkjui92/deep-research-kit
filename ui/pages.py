@@ -403,11 +403,10 @@ def review_page(project):
             if row["match_status"] == "matched":
                 st.caption("발췌 문자열의 원문 위치를 찾았습니다. 위치가 맞다는 뜻이지 값이 옳다는 뜻은 아닙니다.")
             else:
-                st.warning("원문 위치를 찾지 못했거나 미발견입니다. 채택할 수 없으며 보류·제외로 기록할 수 있습니다.")
+                st.warning(ui.geometry_note(row) or "원문 위치를 찾지 못했거나 미발견입니다. 채택할 수 없으며 보류·제외로 기록할 수 있습니다.")
             for locator in row["locators"]:
-                joined = " · 줄끝 하이픈을 이어 대조" if locator.get("dehyphenated") else ""
                 st.markdown(f'<div class="drk-quote">{ui.h(locator["quote"])}</div>'
-                            f'<div class="drk-meta">PDF {locator["page"]}쪽 · {ui.code_word(locator["status"])}{joined}</div>', unsafe_allow_html=True)
+                            f'<div class="drk-meta">{ui.h(ui.locator_meta(locator))}</div>', unsafe_allow_html=True)
             if row["note"]:
                 st.caption("AI 메모 · " + ui.md(row["note"]))
             st.caption(f"근거 ID `{row['id']}` · 읽기 범위 PDF {row['page_scope']['from']}~{row['page_scope']['to']}쪽 / 전체 {row['page_scope']['total']}쪽")

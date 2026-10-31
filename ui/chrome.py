@@ -88,6 +88,24 @@ def code_word(code: str) -> str:
     return CODE_WORD.get(code, code)
 
 
+GEOMETRY_NOTE = ("이 쪽은 회전돼 있거나 잘라 낸 영역(CropBox)이 있어, 지금 판에서는 PDF 위 강조 위치를 계산하지 못합니다. "
+                 "AI가 읽은 글자는 그대로지만 이 도구는 원문 위치를 확인한 근거만 채택하므로, 이 값은 채택·종합에 넣을 수 없습니다. "
+                 "원문을 직접 보고 보류·제외와 이유를 남기세요.")
+
+
+def geometry_note(row) -> str:
+    """Text read fine, highlight not supported: say so instead of pointing at an orange box (#22)."""
+    return GEOMETRY_NOTE if any(loc["status"] == "unsupported_page_geometry" for loc in row["locators"]) else ""
+
+
+def locator_meta(locator) -> str:
+    """The line under a quote: page and match result. Plain text; wrap it with h() inside HTML."""
+    extra = " · 줄끝 하이픈을 이어 대조" if locator.get("dehyphenated") else ""
+    if locator["status"] == "unsupported_page_geometry" and "text_found" in locator:
+        extra += " · 글자는 이 구간에 그대로 있음" if locator["text_found"] else " · 이 구간에서 글자도 찾지 못함"
+    return f"PDF {locator['page']}쪽 · {code_word(locator['status'])}{extra}"
+
+
 def local_time(iso: str) -> str:
     """UTC timestamps from the core → Korean local time for the screen."""
     try:

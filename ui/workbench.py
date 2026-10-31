@@ -28,6 +28,10 @@ CELL_TONE = {"accept": "go", "edit": "edit", "hold": "wait", "reject": "stop", "
 GLYPH = {"pending": "○", "accept": "✓", "edit": "✎", "hold": "⏸", "reject": "✗"}
 REVIEW_CHOICES = {"accept": "채택", "edit": "수정 후 채택", "hold": "보류", "reject": "제외"}
 LEGEND = "○ 미검토 · ✓ 채택 · ✎ 수정 후 채택 · ⏸ 보류 · ✗ 제외 · — 읽은 범위에서 못 찾음 · ? 원문 위치 미확인"
+REVIEW_GUIDE = ("**채택** 원문과 맞아 그대로 씀 · **수정 후 채택** 원문 기준으로 고쳐 씀(AI 값도 보존) · "
+                "**보류** 더 확인이 필요함 · **제외** 원문과 다르거나 쓸 수 없음")
+OUTPUTS = ("끝까지 하면 결과 ZIP이 남습니다: 보고서(research.md) · 비교표(comparison.csv, 문헌×항목) · "
+           "근거 기록(evidence.csv, 값마다 원문 쪽·검토자·이유) · 전체 기록(research.json).")
 
 
 def _answered_runs(project):
@@ -161,7 +165,9 @@ def workbench(project):
                                 key="wb_loc_" + row["id"], label_visibility="collapsed") if len(row["locators"]) > 1 else 0
             locator = row["locators"][pick]
             ui.show_pdf(project, row["source_id"], [locator], page=locator["page"] or 1, identity="wb-" + row["id"],
-                        caption="주황 테두리 = AI가 이 값을 뽑아낸 원문 문장. 자리가 맞다는 뜻이지 값이 옳다는 뜻은 아닙니다.")
+                        caption="이 쪽은 강조 위치를 그릴 수 없습니다(회전·잘린 쪽). 원문을 직접 보며 확인하세요."
+                        if locator["status"] == "unsupported_page_geometry" else
+                        "주황 테두리 = AI가 이 값을 뽑아낸 원문 문장. 자리가 맞다는 뜻이지 값이 옳다는 뜻은 아닙니다.")
         else:
             ui.show_pdf(project, row["source_id"], identity="wb-" + row["id"], caption="이 항목은 읽은 범위에서 찾지 못했습니다. 원문을 넘기며 직접 확인하세요.")
 
@@ -176,21 +182,32 @@ def _detail(project, run_id, row, source, field_name, rows):
         st.markdown(f"**{ui.md(field_name)}** · {ui.md(ui.short(source['title'], 60))}")
         st.markdown(f'<div class="drk-value">{ui.h(row["value"] or "읽은 범위에서 찾지 못함")}</div>', unsafe_allow_html=True)
         for locator in row["locators"]:
-            st.markdown(f'<div class="drk-quote">{ui.h(locator["quote"])}</div><div class="drk-meta">PDF {locator["page"]}쪽 · {ui.code_word(locator["status"])}</div>',
+            st.markdown(f'<div class="drk-quote">{ui.h(locator["quote"])}</div><div class="drk-meta">{ui.h(ui.locator_meta(locator))}</div>',
                         unsafe_allow_html=True)
-        if row["value"] is None:
-            st.caption(f"읽은 범위 PDF {row['page_scope']['from']}~{row['page_scope']['to']}쪽 / 전체 {row['page_scope']['total']}쪽. "
-                       "범위 밖에 있을 수 있습니다 — 설계에서 읽을 쪽수를 0(전체)으로 두고 다시 추출하면 확인됩니다.")
+        if geometry := ui.geometry_note(row):
+            st.warning(geometry, icon=":material/crop_rotate:")
+        # What the model was given and what it wrote about its own reading are different things (#20).
+        scope = row["page_scope"]
+        if row["note"]:
+            st.caption("AI 메모(AI가 적은 읽은 범위·한계) · " + ui.md(row["note"]))
+        st.caption(f"요청에 넣은 범위 · PDF {scope['from']}~{scope['to']}쪽 / 전체 {scope['total']}쪽"
+                   + (". 범위 밖에 있을 수 있습니다 — 「1 · 조사 설계」에서 읽을 쪽수를 0(전체)으로 두고 다시 추출하면 확인됩니다."
+                      if row["value"] is None and scope["to"] < scope["total"] else ""))
         with st.form("wb-review-" + row["id"]):
             previous = row["review"]["status"] if row["review"]["status"] in REVIEW_CHOICES else None
             status = st.radio("이 값을", list(REVIEW_CHOICES), index=list(REVIEW_CHOICES).index(previous) if previous else None,
                               format_func=REVIEW_CHOICES.get, horizontal=True,
                               help="채택 = 원문과 맞아 그대로 씀 · 수정 후 채택 = 고쳐 씀(원래 값 보존) · 보류 = 더 확인 · 제외 = 원문과 다르거나 쓸 수 없음")
+            st.caption(REVIEW_GUIDE)
             checked = st.checkbox("원문의 앞뒤 문맥을 읽고 판단했습니다 (채택·수정 후 채택에 필수)")
             value = st.text_area("수정한 값 (수정 후 채택일 때)", row["review"].get("edited_value") or row["value"] or "", height=70,
-                                 help="AI 값이 채워져 있습니다. 고쳤다면 판정을 「수정 후 채택」으로 고르세요. 「채택」은 AI 값을 그대로 씁니다.")
-            note = st.text_input("이유 한 줄 (필수)", row["review"].get("note", ""), placeholder="예: 표 3의 값과 일치 / 단위가 빠져 보완")
-            reviewer = st.text_input("검토자 (필수 · 한 번 적으면 이 프로젝트에 기억)", st.session_state.get("reviewer") or project.reviewer())
+                                 help="AI 값이 채워져 있습니다. 원문 기준으로 고쳤다면 판정을 「수정 후 채택」으로 고르세요. "
+                                      "예: 원문은 16명인데 추출값이 26명이어서 16명으로 고침. 「채택」은 AI 값을 그대로 씁니다.")
+            note = st.text_input("이유 한 줄 (필수)", row["review"].get("note", ""),
+                                 placeholder="예: 8쪽 발췌와 수치 일치, 앞뒤 문맥상 조건 누락 없음 / 단위가 빠져 보완",
+                                 help="무엇과 대조했는지(쪽·표·문장)와 판단을 짧게 적습니다. 이 이유가 보고서·CSV의 근거 기록에 남습니다.")
+            reviewer = st.text_input("검토자 (필수 · 한 번 적으면 이 프로젝트에 기억)", st.session_state.get("reviewer") or project.reviewer(),
+                                     help="이름이나 이니셜. 보고서·CSV의 검토자 칸에 남습니다.")
             if st.form_submit_button("저장하고 다음 미검토로", type="primary", icon=":material/check:"):
                 missing = []
                 if status is None:
@@ -222,8 +239,10 @@ def _detail(project, run_id, row, source, field_name, rows):
 
 
 def _onboarding(project, sources, included):
+    _question_notice(project, project.config(), "wb_question_go_empty")
     with st.container(border=True):
         st.markdown("**비교표가 아직 없습니다.** 순서대로 하면 몇 분 안에 첫 표가 나옵니다.")
+        st.caption(OUTPUTS)
         c1, c2, c3 = st.columns(3)
         c1.markdown(f"**① 문헌 모으기**  \n위 「문헌 찾기」에서 검색해 담거나 「PDF 가져오기」로 올립니다.  \n지금 {len(sources)}편")
         c2.markdown(f"**② 쓸 논문 고르기**  \n문헌마다 포함·제외를 정합니다(「단계별 보기 → 2 · 문헌 선별」).  \n지금 포함 {len(included)}편")
@@ -255,9 +274,32 @@ def _action_bar(project, runs, included, config):
     with c5, st.popover("내보내기", icon=":material/download:", width="stretch"):
         _export_popover(project, runs)
     with c6:
-        if st.button("단계별 보기", icon=":material/school:", width="stretch", help="조사 설계·선별·검토를 한 단계씩 따라가는 학습 모드"):
-            st.session_state["mode"] = st.session_state["mode_pick"] = "단계별(학습)"
-            st.rerun()
+        st.button("단계별 보기", icon=":material/school:", width="stretch", help="조사 설계·선별·검토를 한 단계씩 따라가는 학습 모드",
+                  on_click=open_steps)
+
+
+def open_steps(stage=None):
+    """Switch to the step-by-step mode, optionally at one stage. This runs as a button callback:
+    the sidebar's mode switch (key mode_pick) is already drawn when the button body runs, and
+    Streamlit refuses to change a drawn widget's value then (#19)."""
+    st.session_state["mode"] = st.session_state["mode_pick"] = "단계별(학습)"
+    if stage:
+        st.session_state["stage_value"] = stage
+        st.session_state["scroll_top"] = True
+
+
+def _example_question(project, config):
+    """The research question is still the sample one, in a project of the person's own."""
+    return (not (project.root / "example-manifest.json").exists()
+            and config["plan"].get("question") == DEFAULT_PLAN["question"])
+
+
+def _question_notice(project, config, key):
+    if not _example_question(project, config):
+        return
+    st.warning(f"조사 질문이 아직 예시 그대로입니다: 「{ui.md(config['plan']['question'])}」. AI는 이 질문과 항목 지침에 맞춰 값을 고릅니다. "
+               "내 질문으로 바꾸면 추출도 그 질문에 맞춰집니다.", icon=":material/edit_note:")
+    st.button("조사 질문 바꾸러 가기 · 1 · 조사 설계", key=key, on_click=open_steps, args=(ui.STAGES[0],))
 
 
 def _search_popover(project):
@@ -385,10 +427,17 @@ def _fields_popover(project, config):
 def _extract_popover(project, runs, included, config):
     from deep_research.providers import agent_busy, claude_code_status, run_claude_code
     st.markdown(f"**AI로 추출** — 포함 문헌 {len(included)}편 × 항목 {len(config['fields'])}개")
+    plan = config["plan"]
+    st.caption(f"한 실행의 문헌 상한 {plan['max_documents']}편 · 문헌당 처음 {plan.get('max_pages_per_document', 20) or '전체'}쪽을 읽음 "
+               "(「단계별 보기 → 1 · 조사 설계」에서 바꿈)")
     example = (project.root / "example-manifest.json").exists()
     if not included:
         st.warning("포함으로 둔 문헌이 없습니다. 문헌을 담은 뒤 다시 누르세요.")
         return
+    if len(included) > plan["max_documents"]:
+        st.warning(f"포함 문헌 {len(included)}편이 한 실행의 상한 {plan['max_documents']}편보다 많습니다. 일부를 제외하거나 상한을 올리세요.")
+        st.button("상한 바꾸러 가기 · 1 · 조사 설계", key="wb_limit_go", on_click=open_steps, args=(ui.STAGES[0],))
+    _question_notice(project, config, "wb_question_go")
     if "cc_status" not in st.session_state:
         st.session_state["cc_status"] = claude_code_status()
     status = st.session_state["cc_status"]
