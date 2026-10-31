@@ -12,7 +12,14 @@ import streamlit as st
 
 from deep_research import workflow as flow
 from deep_research.exports import bibliography, citation, display_value, export_zip, report
-from deep_research.project import DEFAULT_FIELDS, DEFAULT_PLAN, DEFAULT_RULES, read_json
+from deep_research.project import (
+    DEFAULT_FIELDS,
+    DEFAULT_PLAN,
+    DEFAULT_RULES,
+    has_no_text,
+    no_text_note,
+    read_json,
+)
 
 from . import chrome as ui
 
@@ -62,6 +69,8 @@ def workbench(project):
     included = [s for s in sources if s["decision"] == "include"]
     config = project.config()
     _action_bar(project, runs, included, config)
+    if note := no_text_note([s for s in sources if s["decision"] != "exclude"]):
+        st.warning(note, icon=":material/scanner:")
     search_results_panel(project)
     if not runs:
         _onboarding(project, sources, included)
@@ -219,10 +228,12 @@ def _onboarding(project, sources, included):
         c3.markdown("**③ AI로 추출**  \n위 「AI로 추출」. Claude Code가 있으면 바로, 없으면 요청문 복사 또는 예제 응답.")
         if sources and not included:
             if st.button("등록한 문헌을 모두 포함으로 두고 시작 (나중에 바꿀 수 있음)"):
-                for s in sources:
-                    if s["decision"] == "pending":
-                        project.screen(s["id"], "include", "작업 화면에서 일괄 포함. 선별 이유는 2단계에서 보완.")
-                st.session_state["flash"] = f"{len(sources)}편을 포함으로 두었습니다. 「AI로 추출」을 누르세요."
+                readable = [s for s in sources if s["decision"] == "pending" and not has_no_text(s)]
+                for s in readable:
+                    project.screen(s["id"], "include", "작업 화면에서 일괄 포함. 선별 이유는 2단계에서 보완.")
+                skipped = sum(s["decision"] == "pending" and has_no_text(s) for s in sources)
+                st.session_state["flash"] = (f"{len(readable)}편을 포함으로 두었습니다. 「AI로 추출」을 누르세요."
+                                             + (f" 글자 없는 PDF {skipped}편은 보류로 남겼습니다." if skipped else ""))
                 st.rerun()
 
 
