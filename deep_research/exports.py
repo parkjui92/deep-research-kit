@@ -69,8 +69,15 @@ def display_value(row):
     return reviewed_value(row)
 
 
-def cell(text):
-    return str(text or "—").replace("|", "\\|").replace("\n", " ")
+def text(value):
+    """Text from people, models and PDFs inside the Markdown report. As markup it could hide words
+    in the report and on the review screen that still reach the CSV and the synthesis (#34), and
+    `$…$` reads as a formula (#21). The CSV and the reference list keep the text as it is."""
+    return str(value).replace("<", "&lt;").replace(">", "&gt;").replace("$", "\\$")
+
+
+def cell(value):
+    return text(value or "—").replace("|", "\\|").replace("\n", " ")
 
 
 def matrix(project, run_id):
@@ -105,20 +112,20 @@ def report(project, run_id, local_pdf_links=False):
     title = read_json(project.root / "project.json").get("title", "")
     reviewers = sorted({r["review"].get("reviewer") for r in rows if r["review"].get("reviewer")})
     notes = {r["note"] for r in rows if r.get("note")}
-    lines = ["# " + run["config"]["plan"]["question"], "",
-             f"프로젝트: {title} (`{project.root.name}`) · 실행 `{run_id}` · 실행 생성 {local(run['created_at'])} · 보고서 작성 {local(datetime.now(UTC).isoformat())}", "",
+    lines = ["# " + text(run["config"]["plan"]["question"]), "",
+             f"프로젝트: {text(title)} (`{project.root.name}`) · 실행 `{run_id}` · 실행 생성 {local(run['created_at'])} · 보고서 작성 {local(datetime.now(UTC).isoformat())}", "",
              (f"문헌 {len(sources)}건 · 연구 {len({s['study_id'] for s in sources.values()})}건 · "
-             f"채택 근거 {len(approved)}/{len(rows)}건 · 검토자 {', '.join(reviewers) or '없음'}"), "",
+             f"채택 근거 {len(approved)}/{len(rows)}건 · 검토자 {text(', '.join(reviewers)) or '없음'}"), "",
              "원문 문자열 일치, 사람의 근거 검토, AI 종합은 서로 다른 단계입니다. 쪽수는 PDF 파일의 첫 장부터 센 것이라 인쇄 쪽 번호와 다를 수 있습니다.", ""]
     if len(notes) == 1:
-        lines += ["추출 메모(모든 근거 공통): " + next(iter(notes)), ""]
+        lines += ["추출 메모(모든 근거 공통): " + text(next(iter(notes))), ""]
     lines += ["## 종합", ""]
     if synthesis:
         lines.append("아래는 검토된 근거에 기반한 AI 종합 초안입니다. 주장과 근거의 의미적 연결은 최종 확인이 필요합니다.\n")
         for claim in synthesis["claims"]:
             refs = ", ".join(f"[{e}](#{e})" for e in claim["evidence_ids"])
-            lines.append(f"- **{claim['kind']}**: {claim['text']} ({refs})")
-        lines += ["", "### 남은 질문", ""] + ["- " + str(g) for g in synthesis.get("gaps", [])]
+            lines.append(f"- **{claim['kind']}**: {text(claim['text'])} ({refs})")
+        lines += ["", "### 남은 질문", ""] + ["- " + text(g) for g in synthesis.get("gaps", [])]
     else:
         lines.append("유효한 종합이 아직 없습니다. 현재 확인된 근거와 미확인 항목을 함께 제공합니다.")
     lines += ["", "## 채택한 근거", "", "| 문헌 | 항목 | 검토 후 값 | 근거 ID |", "|---|---|---|---|"]
@@ -128,41 +135,41 @@ def report(project, run_id, local_pdf_links=False):
     lines += ["", "## 검토 기록과 원문 위치", ""]
     for row in rows:
         source = sources[row["source_id"]]
-        lines += [f"<a id=\"{row['id']}\"></a>", f"### {row['id']} · {fields[row['field_id']]}", "",
-                  f"문헌: {source['title']} (`{source['id']}`), 연구 ID: `{source['study_id']}`", "",
-                  f"추출값: {row['value'] or '자료에서 찾지 못함'}", "",
+        lines += [f"<a id=\"{row['id']}\"></a>", f"### {row['id']} · {text(fields[row['field_id']])}", "",
+                  f"문헌: {text(source['title'])} (`{source['id']}`), 연구 ID: `{text(source['study_id'])}`", "",
+                  f"추출값: {text(row['value'] or '자료에서 찾지 못함')}", "",
                   f"읽기 범위: PDF {row['page_scope']['from']}~{row['page_scope']['to']}쪽 / 전체 {row['page_scope']['total']}쪽", "",
                   f"위치 대조: {word(row['match_status'])} · 검토: {word(row['review']['status'])}", "",
-                  f"검토자: {row['review']['reviewer'] or '미검토'} · 이유: {row['review']['note'] or '—'}", ""]
+                  f"검토자: {text(row['review']['reviewer'] or '미검토')} · 이유: {text(row['review']['note'] or '—')}", ""]
         if row["review"]["status"] == "edit":
-            lines += [f"수정값: {display_value(row)}", ""]
+            lines += [f"수정값: {text(display_value(row))}", ""]
         for locator in row["locators"]:
-            lines += [f"> {locator['quote'].replace(chr(10), ' ')}", "",
+            lines += [f"> {text(locator['quote']).replace(chr(10), ' ')}", "",
                       f"PDF {locator['page']}쪽 · {word(locator['status'])} · 구간 `{locator['passage_id']}`", ""]
             if local_pdf_links:
                 lines += [f"[원본 PDF 해당 쪽 열기](sources/{source['id']}.pdf#page={locator['page']})", ""]
         if row["note"] and len(notes) > 1:
-            lines += ["추출 메모: " + row["note"], ""]
+            lines += ["추출 메모: " + text(row["note"]), ""]
     lines += ["## 확인 필요·제외", ""]
     for row in rows:
         if row not in approved:
-            lines.append(f"- {row['id']}: {word(row['match_status'])} / {word(row['review']['status'])} — {row['review']['note'] or ('미검토' if len(notes) == 1 else row['note'])}")
+            lines.append(f"- {row['id']}: {word(row['match_status'])} / {word(row['review']['status'])} — {text(row['review']['note'] or ('미검토' if len(notes) == 1 else row['note']))}")
     imported = {r["source_id"] for r in rows}
     for source in sources.values():
         if source["id"] not in imported:
-            lines.append(f"- {source['title']}: 추출 응답 없음")
+            lines.append(f"- {text(source['title'])}: 추출 응답 없음")
     lines += ["", "## 선별 판단과 근거 구절", "",
               "실행에 포함한 문헌마다 포함 판단의 이유와, 그 근거로 적은 원문 구절·위치입니다. 구절 위치는 문자열 대조 결과이고 기준 적합성은 사람의 판단입니다.", ""]
     for source in sources.values():
-        lines += [f"- **{source['title']}** — 판단: {word(source['decision'])} · 이유: {source['reason'] or '—'}"]
+        lines += [f"- **{text(source['title'])}** — 판단: {word(source['decision'])} · 이유: {text(source['reason'] or '—')}"]
         for quote in source.get("screen_quotes", []):
             where = (f"PDF {quote['page']}쪽" + (f" 외 {len(quote['occurrences']) - 1}곳" if quote.get("occurrences") else "")
                      if quote["status"] in {"exact_normalized", "multiple"} else "원문에서 찾지 못함")
             tag = {"inclusion": "포함 기준", "exclusion": "제외 기준"}.get(quote.get("criterion", ""), "기준 미표시")
-            lines += [f"  - [{tag} · {where} · {word(quote['status'])}] {quote['quote'].replace(chr(10), ' ')}"]
+            lines += [f"  - [{tag} · {where} · {word(quote['status'])}] {text(quote['quote']).replace(chr(10), ' ')}"]
     lines += ["", "## 참고문헌", ""]
     for i, source in enumerate(sorted(sources.values(), key=lambda s: (_authors_text(s.get("bib")), s["title"])), 1):
-        lines.append(f"{i}. {citation(source)}  ")
+        lines.append(f"{i}. {text(citation(source))}  ")
         lines.append(f"   문헌 ID `{source['id']}` · SHA-256 `{source['sha256'][:16]}…`")
     lines += ["", "## 위키로 이어가기", "",
               "이 문서와 research.json을 함께 가져오세요. 근거 ID·문헌 ID·원문 위치·검토 상태를 보존하세요.",

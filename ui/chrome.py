@@ -5,6 +5,8 @@ a review state looks the same in the sidebar, the tables and the evidence card.
 """
 from __future__ import annotations
 
+import html
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -43,6 +45,28 @@ CODE_WORD = {"exact_normalized": "글자 그대로 일치", "multiple": "여러 
 STAGE_HINT = {"1 · 조사 설계": "질문·기준·추출 항목", "2 · 문헌 선별": "논문 단위 · 어떤 논문을 쓸지(AI가 읽기 전)", "3 · 원문 추출": "기준을 고정하고 AI에게 원문 읽히기",
               "4 · 근거 검토": "값 단위 · AI가 뽑은 값이 원문과 맞는지(AI가 읽은 뒤)", "5 · 종합": "채택 근거만으로 답", "6 · 비교·내보내기": "전후 비교 · ZIP"}
 STAGE_MARK = {"done": "✓", "current": "●", "todo": "○"}
+
+
+def h(text) -> str:
+    """Data placed inside our own HTML. Values, quotes and titles come from model replies, search
+    indexes and PDFs; as markup they could hide words on screen that still go into the CSV and the
+    synthesis (#34). `$` becomes an entity so Streamlit never reads it as math (#21)."""
+    return html.escape("" if text is None else str(text), quote=True).replace("$", "&#36;")
+
+
+_MARKDOWN_SIGNS = re.compile(r"([\\`*_{}\[\]<>()#+!|~$])")
+
+
+def md(text) -> str:
+    """Data placed in Streamlit Markdown: st.markdown, captions, button labels and tooltips.
+    Every Markdown and math sign is shown as itself: US$14,900 stays money, not a formula."""
+    return _MARKDOWN_SIGNS.sub(r"\\\1", "" if text is None else str(text))
+
+
+def safe_url(url) -> str:
+    """Only web links go into an href."""
+    url = "" if url is None else str(url).strip()
+    return url if url.lower().startswith(("https://", "http://")) else ""
 
 
 def inject_css():
@@ -163,7 +187,7 @@ def app_header(project, title: str, stage: str | None):
         f'<div class="drk-app{compact}">'
         '<div class="drk-app-top"><div><div class="drk-wordmark">Deep Research Kit</div>'
         '<div class="drk-tagline">여러 논문을 내 질문에 맞는 비교표로 · AI가 뽑은 값을 원문으로 확인해 근거로 남깁니다</div></div>'
-        f'<div class="drk-project"><span class="k">프로젝트</span><span class="v">{title}</span><code>{project.root.name}</code></div></div>'
+        f'<div class="drk-project"><span class="k">프로젝트</span><span class="v">{h(title)}</span><code>{h(project.root.name)}</code></div></div>'
         f'{stepper}</div>', unsafe_allow_html=True)
 
 
@@ -175,8 +199,8 @@ def header(title: str, lead: str, metrics: list[tuple] = ()):
         chips = []
         for item in metrics:
             label, value, *rest = item
-            tip = f' title="{rest[0]}"' if rest else ""
-            chips.append(f'<span class="drk-chip"{tip}><span class="k">{label}</span><span class="v">{value}</span></span>')
+            tip = f' title="{h(rest[0])}"' if rest else ""
+            chips.append(f'<span class="drk-chip"{tip}><span class="k">{h(label)}</span><span class="v">{h(value)}</span></span>')
         st.markdown('<div class="drk-chips">' + "".join(chips) + '</div>', unsafe_allow_html=True)
 
 

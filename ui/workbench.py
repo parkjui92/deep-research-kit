@@ -96,7 +96,7 @@ def workbench(project):
              ("채택", f"{kept}/{len(rows)}"), ("미검토", pending), ("못 찾음", missing)]
     if new_sources or len(fields) > len(run_fields):
         st.info(f"새로 더한 문헌 {len(new_sources)}편 · 항목 {len(fields) - len(run_fields)}개는 아직 AI가 읽지 않았습니다. 「AI로 추출」을 다시 실행하면 채워집니다(이전 실행과 검토 기록은 보존).", icon=":material/info:")
-    chips_html = "".join(f'<span class="drk-chip"><span class="k">{k}</span><span class="v">{v}</span></span>' for k, v in chips)
+    chips_html = "".join(f'<span class="drk-chip"><span class="k">{ui.h(k)}</span><span class="v">{ui.h(v)}</span></span>' for k, v in chips)
     top_l, top_r = st.columns([3, 1.4])
     top_l.markdown('<div class="drk-chips">' + chips_html + "</div>", unsafe_allow_html=True)
     if len(runs) > 1:
@@ -118,12 +118,12 @@ def workbench(project):
         head = st.columns(widths, gap="small")
         head[0].markdown('<div class="drk-th">문헌</div>', unsafe_allow_html=True)
         for col, field in zip(head[1:], fields):
-            col.markdown(f'<div class="drk-th" title="{field["instruction"]}">{field["name"]}</div>', unsafe_allow_html=True)
+            col.markdown(f'<div class="drk-th" title="{ui.h(field["instruction"])}">{ui.h(field["name"])}</div>', unsafe_allow_html=True)
         for source in run["sources"]:
             cols = st.columns(widths, gap="small")
             bib = project.with_bib(source).get("bib") or {}
             meta = " · ".join(x for x in (ui.short(", ".join(bib.get("authors", [])[:2]), 30), str(bib.get("year") or "")) if x)
-            cols[0].markdown(f'<div class="drk-td-title" title="{source["title"]}">{ui.short(source["title"], 56)}<span>{meta}</span></div>', unsafe_allow_html=True)
+            cols[0].markdown(f'<div class="drk-td-title" title="{ui.h(source["title"])}">{ui.h(ui.short(source["title"], 56))}<span>{ui.h(meta)}</span></div>', unsafe_allow_html=True)
             for col, field in zip(cols[1:], fields):
                 cell = by_key.get((source["id"], field["id"]))
                 if cell is None:
@@ -132,20 +132,21 @@ def workbench(project):
                 selected = cell["id"] == st.session_state["wb_pick"]
                 tone = "none" if cell["value"] is None else CELL_TONE.get(cell["review"]["status"], "todo")
                 with col.container(key=f"tone-{tone}-{cell['id']}"):
-                    if st.button(_cell(cell) or "—", key="cell-" + cell["id"], width="stretch", type="primary" if selected else "secondary",
-                                 help=(cell["value"] or "읽은 범위에서 찾지 못함") + f"\n\n검토: {ui.word(ui.REVIEW, cell['review']['status'])}"):
+                    if st.button(ui.md(_cell(cell) or "—"), key="cell-" + cell["id"], width="stretch", type="primary" if selected else "secondary",
+                                 help=ui.md(cell["value"] or "읽은 범위에서 찾지 못함") + f"\n\n검토: {ui.word(ui.REVIEW, cell['review']['status'])}"):
                         st.session_state["wb_pick"] = cell["id"]
                         st.session_state["wb_scroll_top"] = True
                         st.rerun()
         for source in new_sources:
             cols = st.columns(widths, gap="small")
-            cols[0].markdown(f'<div class="drk-td-title" title="{source["title"]}">{ui.short(source["title"], 56)}<span>새 문헌 · 포함</span></div>', unsafe_allow_html=True)
+            cols[0].markdown(f'<div class="drk-td-title" title="{ui.h(source["title"])}">{ui.h(ui.short(source["title"], 56))}<span>새 문헌 · 포함</span></div>', unsafe_allow_html=True)
             for col in cols[1:]:
                 col.markdown('<div class="drk-td-empty">AI 추출 대기</div>', unsafe_allow_html=True)
         for cand in waiting:
             cols = st.columns(widths, gap="small")
-            link = cand.get("url") or ("https://doi.org/" + cand["doi"] if cand.get("doi") else "")
-            cols[0].markdown(f'<div class="drk-td-title">{ui.short(cand["title"], 56)}<span>PDF 없음 · <a href="{link}" target="_blank">원문 링크</a> → 「PDF 가져오기」로 올리면 묶입니다</span></div>', unsafe_allow_html=True)
+            link = ui.safe_url(cand.get("url") or ("https://doi.org/" + cand["doi"] if cand.get("doi") else ""))
+            anchor = f'<a href="{ui.h(link)}" target="_blank">원문 링크</a> → ' if link else ""
+            cols[0].markdown(f'<div class="drk-td-title">{ui.h(ui.short(cand["title"], 56))}<span>PDF 없음 · {anchor}「PDF 가져오기」로 올리면 묶입니다</span></div>', unsafe_allow_html=True)
             for col in cols[1:]:
                 col.markdown('<div class="drk-td-empty">—</div>', unsafe_allow_html=True)
     row = next(r for r in rows if r["id"] == st.session_state["wb_pick"])
@@ -172,10 +173,10 @@ def _detail(project, run_id, row, source, field_name, rows):
             ui.badge(ui.MATCH, row["match_status"])
         with b:
             ui.badge(ui.REVIEW, row["review"]["status"])
-        st.markdown(f"**{field_name}** · {ui.short(source['title'], 60)}")
-        st.markdown(f'<div class="drk-value">{row["value"] or "읽은 범위에서 찾지 못함"}</div>', unsafe_allow_html=True)
+        st.markdown(f"**{ui.md(field_name)}** · {ui.md(ui.short(source['title'], 60))}")
+        st.markdown(f'<div class="drk-value">{ui.h(row["value"] or "읽은 범위에서 찾지 못함")}</div>', unsafe_allow_html=True)
         for locator in row["locators"]:
-            st.markdown(f'<div class="drk-quote">{locator["quote"]}</div><div class="drk-meta">PDF {locator["page"]}쪽 · {ui.code_word(locator["status"])}</div>',
+            st.markdown(f'<div class="drk-quote">{ui.h(locator["quote"])}</div><div class="drk-meta">PDF {locator["page"]}쪽 · {ui.code_word(locator["status"])}</div>',
                         unsafe_allow_html=True)
         if row["value"] is None:
             st.caption(f"읽은 범위 PDF {row['page_scope']['from']}~{row['page_scope']['to']}쪽 / 전체 {row['page_scope']['total']}쪽. "
@@ -213,7 +214,7 @@ def _detail(project, run_id, row, source, field_name, rows):
                         after = [r["id"] for r in rows if r["review"]["status"] == "pending" and r["id"] != row["id"]]
                         st.session_state["wb_next"] = after[0] if after else row["id"]
                         st.session_state["wb_scroll_top"] = True
-                        _say(f"저장했습니다 · {field_name} → {REVIEW_CHOICES[status]}" + ("" if after else " · 미검토가 없습니다. 내보내기로 가세요."))
+                        _say(f"저장했습니다 · {ui.md(field_name)} → {REVIEW_CHOICES[status]}" + ("" if after else " · 미검토가 없습니다. 내보내기로 가세요."))
                         st.rerun()
         with st.expander("인용 문장 복사", icon=":material/format_quote:"):
             st.code(citation(source, row), language=None)
@@ -325,7 +326,9 @@ def search_results_panel(project):
     if pending:
         st.markdown("**PDF가 아직 없는 문헌**")
         for c in pending[:10]:
-            st.markdown(f"- [{ui.short(c['title'], 70)}]({c.get('url') or 'https://doi.org/' + (c.get('doi') or '')}) · {c.get('year') or ''}")
+            link = ui.safe_url(c.get("url") or ("https://doi.org/" + c["doi"] if c.get("doi") else ""))
+            label = ui.md(ui.short(c["title"], 70))
+            st.markdown((f"- [{label}](<{link}>)" if link else f"- {label}") + f" · {c.get('year') or ''}")
 
 
 def _import_popover(project):
@@ -384,7 +387,7 @@ def _fields_popover(project, config):
     if st.button("항목 추가", disabled=not (name.strip() and instruction.strip()), key="wb_f_add"):
         fields = config["fields"] + [{"id": _slug(name), "name": name.strip(), "instruction": instruction.strip()}]
         project.save_config(config["plan"], fields, config["synthesis_rules"])
-        _say(f"항목 「{name.strip()}」을 추가했습니다. 표에 'AI 추출 대기' 열로 보이며, 「AI로 추출」을 다시 실행하면 채워집니다.")
+        _say(f"항목 「{ui.md(name.strip())}」을 추가했습니다. 표에 'AI 추출 대기' 열로 보이며, 「AI로 추출」을 다시 실행하면 채워집니다.")
         st.rerun()
     st.caption("질문·범위·포함 기준·읽을 쪽수는 「단계별 보기 → 1 · 조사 설계」에서 바꿉니다.")
 
@@ -503,7 +506,7 @@ def _web_ai_pack(project, pending):
         else:
             st.session_state["wb_run"] = pending
             st.session_state.pop("wb_pack_reply", None)
-            _say(f"{titles[target]} 응답을 가져왔습니다. 남은 문헌도 같은 방법으로.")
+            _say(f"{ui.md(titles[target])} 응답을 가져왔습니다. 남은 문헌도 같은 방법으로.")
             st.rerun()
 
 
@@ -538,7 +541,7 @@ def _export_popover(project, runs):
     current = flow.current_synthesis(project, run_id)
     if current:
         for claim in current["claims"]:
-            st.markdown(f"- **{claim['kind']}** {claim['text']}")
+            st.markdown(f"- **{claim['kind']}** {ui.md(claim['text'])}")
 
 
 def reset_design(project):

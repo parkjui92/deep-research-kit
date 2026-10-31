@@ -176,12 +176,12 @@ def sources_page(project):
                         except ValueError as exc:
                             st.error(str(exc))
                         else:
-                            st.session_state["flash"] = f"선별을 저장했습니다 · {ui.short(title, 40)} → {DECISION_CHOICES[decision]}"
+                            st.session_state["flash"] = f"선별을 저장했습니다 · {ui.md(ui.short(title, 40))} → {DECISION_CHOICES[decision]}"
                             st.rerun()
         located = [q for q in source.get("screen_quotes", []) if q["status"] in LOCATED]
         missing = [q for q in source.get("screen_quotes", []) if q["status"] not in LOCATED]
         for q in missing:
-            st.warning(f"원문에서 찾지 못한 구절 · {ui.short(q['quote'], 60)}\n\n{SCREEN_QUOTE_STATUS.get(q['status'], q['status'])}. 판단은 저장됐습니다.")
+            st.warning(f"원문에서 찾지 못한 구절 · {ui.md(ui.short(q['quote'], 60))}\n\n{SCREEN_QUOTE_STATUS.get(q['status'], q['status'])}. 판단은 저장됐습니다.")
         if source in stale:
             st.warning("조사 질문·기준이 바뀐 뒤의 판단이 아닙니다. 현재 기준으로 다시 확인하고 저장하세요.")
         if source["text_pages"] < source["page_count"]:
@@ -291,10 +291,10 @@ def extraction_page(project):
         for req in run["requests"]:
             imported = (folder / "responses" / (req["source_id"] + ".json")).exists()
             request = read_json(folder / "requests" / (req["source_id"] + ".json"))
-            with st.expander(("✓ 응답 있음 · " if imported else "○ 응답 대기 · ") + ui.short(project.source(req["source_id"])["title"], 80)):
+            with st.expander(("✓ 응답 있음 · " if imported else "○ 응답 대기 · ") + ui.md(ui.short(project.source(req["source_id"])["title"], 80))):
                 if imported:
                     for row in rows_by_source.get(req["source_id"], []):
-                        st.markdown(f"- **{fields.get(row['field_id'], row['field_id'])}** · {ui.short(row['value'] or '자료에서 찾지 못함', 90)}")
+                        st.markdown(f"- **{ui.md(fields.get(row['field_id'], row['field_id']))}** · {ui.md(ui.short(row['value'] or '자료에서 찾지 못함', 90))}")
                     st.caption("값의 원문 자리와 채택 여부는 「4 · 근거 검토」에서.")
                 st.caption(f"원문 구간(AI가 읽을 글 덩어리) {len(request['passages'])}개 · 요청 ID `{req['request_id']}`")
                 for warning in request["warnings"]:
@@ -397,19 +397,19 @@ def review_page(project):
                 ui.badge(ui.MATCH, row["match_status"])
             with b:
                 ui.badge(ui.REVIEW, row["review"]["status"])
-            st.markdown(f"**{fields[row['field_id']]}** · {ui.short(project.source(row['source_id'])['title'], 60)}")
+            st.markdown(f"**{ui.md(fields[row['field_id']])}** · {ui.md(ui.short(project.source(row['source_id'])['title'], 60))}")
             st.markdown("**AI 추출값**")
-            st.markdown(f'<div class="drk-value">{row["value"] or "자료에서 찾지 못함"}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="drk-value">{ui.h(row["value"] or "자료에서 찾지 못함")}</div>', unsafe_allow_html=True)
             if row["match_status"] == "matched":
                 st.caption("발췌 문자열의 원문 위치를 찾았습니다. 위치가 맞다는 뜻이지 값이 옳다는 뜻은 아닙니다.")
             else:
                 st.warning("원문 위치를 찾지 못했거나 미발견입니다. 채택할 수 없으며 보류·제외로 기록할 수 있습니다.")
             for locator in row["locators"]:
                 joined = " · 줄끝 하이픈을 이어 대조" if locator.get("dehyphenated") else ""
-                st.markdown(f'<div class="drk-quote">{locator["quote"]}</div>'
+                st.markdown(f'<div class="drk-quote">{ui.h(locator["quote"])}</div>'
                             f'<div class="drk-meta">PDF {locator["page"]}쪽 · {ui.code_word(locator["status"])}{joined}</div>', unsafe_allow_html=True)
             if row["note"]:
-                st.caption("AI 메모 · " + row["note"])
+                st.caption("AI 메모 · " + ui.md(row["note"]))
             st.caption(f"근거 ID `{row['id']}` · 읽기 범위 PDF {row['page_scope']['from']}~{row['page_scope']['to']}쪽 / 전체 {row['page_scope']['total']}쪽")
         with st.container(border=True):
             st.markdown("**내 판단**")
@@ -516,7 +516,8 @@ def synthesis_page(project):
             st.rerun()
     ui.next_button(ui.STAGES[5], "next-5")
     with st.expander("보고서 미리보기 · 6단계에서 내려받는 내용", expanded=bool(current)):
-        # The report carries our own <a id> anchors for evidence links; nothing user-supplied is HTML.
+        # The report carries our own <a id> anchors for evidence links. Text from people, models and
+        # PDFs is escaped inside report() (`<`, `>`, `$`), so it shows as written and never as markup.
         st.markdown(report(project, run_id), unsafe_allow_html=True)
 
 
@@ -587,7 +588,7 @@ def export_page(project):
                     st.caption(label)
                     if synth:
                         for claim in synth["claims"]:
-                            st.markdown(f"- **{claim['kind']}** {claim['text']}")
+                            st.markdown(f"- **{claim['kind']}** {ui.md(claim['text'])}")
                     else:
                         st.caption("유효한 종합 없음")
             st.download_button("비교 JSON", json.dumps(result, ensure_ascii=False, indent=2), f"{stem}_comparison.json")
