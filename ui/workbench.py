@@ -270,20 +270,10 @@ def _search_popover(project):
     limit = b.number_input("최대 건수", 5, 50, 20, key="wb_limit")
     if st.button("검색", disabled=not query.strip(), key="wb_search_btn"):
         try:
-            results = search_literature(project, query, providers or ["OpenAlex"], limit)
+            # The year goes to the search servers and the search log lists exactly what is shown.
+            st.session_state["wb_results"] = search_literature(project, query, providers or ["OpenAlex"], limit, year_from or None)
         except ValueError as exc:
             st.error(str(exc))
-        else:
-            if year_from:
-                results = [r for r in results if (r.get("year") or 0) >= year_from]
-            seen, unique = set(), []
-            for r in results:  # preprint + published copies collapse into one row (OA pdf wins)
-                key = re.sub(r"[^a-z0-9]", "", r["title"].lower())[:80]
-                if key in seen:
-                    continue
-                seen.add(key)
-                unique.append(r)
-            st.session_state["wb_results"] = unique
     results = st.session_state.get("wb_results") or []
     if results:
         st.caption(f"{len(results)}건을 찾았습니다. 팝업을 닫으면 본문에 넓은 표로 보이며 거기서 담습니다.")

@@ -113,8 +113,22 @@ def openalex_search(query, limit=20, year_from=None):
     return payload.get("meta", {}).get("count", len(out)), out
 
 
-def arxiv_search(query, limit=20):
-    response = httpx.get("https://export.arxiv.org/api/query", params={"search_query": f"all:{query}", "max_results": max(1, min(int(limit), 50))},
+def arxiv_query(query, year_from=None):
+    """arXiv reads `all:generative AI productivity` as generative OR AI OR productivity, so the
+    first hits can be off topic (#33). Every word must match; a "quoted phrase" stays a phrase."""
+    import re
+    terms = [f'all:"{phrase}"' if phrase else f"all:{word}"
+             for phrase, word in re.findall(r'"([^"]+)"|(\S+)', query)]
+    if year_from:
+        from datetime import datetime
+        terms.append(f"submittedDate:[{int(year_from)}01010000 TO {datetime.now().year + 1}12312359]")
+    return " AND ".join(terms)
+
+
+def arxiv_search(query, limit=20, year_from=None):
+    response = httpx.get("https://export.arxiv.org/api/query",
+                         params={"search_query": arxiv_query(query, year_from), "max_results": max(1, min(int(limit), 50)),
+                                 "sortBy": "relevance", "sortOrder": "descending"},
                          headers=UA, timeout=30)
     response.raise_for_status()
     import xml.etree.ElementTree as ET
@@ -132,8 +146,11 @@ def arxiv_search(query, limit=20):
     return len(out), out
 
 
-def crossref_candidates(query, limit=20):
-    response = httpx.get("https://api.crossref.org/works", params={"query": query, "rows": max(1, min(int(limit), 50))}, headers=UA, timeout=30)
+def crossref_candidates(query, limit=20, year_from=None):
+    params = {"query": query, "rows": max(1, min(int(limit), 50))}
+    if year_from:
+        params["filter"] = f"from-pub-date:{int(year_from)}-01-01"
+    response = httpx.get("https://api.crossref.org/works", params=params, headers=UA, timeout=30)
     response.raise_for_status()
     message = response.json()["message"]
     out = []
@@ -155,33 +172,47 @@ def crossref_candidates(query, limit=20):
 PROVIDERS = {"OpenAlex": openalex_search, "arXiv": arxiv_search, "Crossref": crossref_candidates}
 
 
-def search_literature(project, query, providers=("OpenAlex",), limit=20):
-    """Search one or more free indexes, merge by DOI, log the search for the PRISMA trail."""
+def _title_key(title):
+    import re
+    return re.sub(r"[^a-z0-9]", "", (title or "").lower())[:80]
+
+
+def search_literature(project, query, providers=("OpenAlex",), limit=20, year_from=None):
+    """Search one or more free indexes, merge copies of one work, log the search for the PRISMA
+    trail. The year condition goes to each server, and the log holds exactly the list the person
+    sees: no filtering after the record is written (#33)."""
     if not query.strip():
         raise ValueError("검색어를 입력하세요.")
-    merged, errors, totals = {}, {}, {}
+    year_from = int(year_from) if year_from else None
+    merged, errors, totals, received = {}, {}, {}, {}
     for name in providers:
         try:
-            total, items = PROVIDERS[name](query, limit)
+            total, items = PROVIDERS[name](query, limit, year_from=year_from)
         except (httpx.HTTPError, ValueError, KeyError) as exc:
             errors[name] = type(exc).__name__
             continue
-        totals[name] = total
+        totals[name], received[name] = total, len(items)
         for item in items:
-            key = item["doi"] or item["title"].strip().lower()
-            if key in merged:
+            # One work: the same DOI, or the same title (a preprint and its published version).
+            key = next((k for k, v in merged.items() if (item["doi"] and v["doi"] == item["doi"])
+                        or (_title_key(item["title"]) and _title_key(v["title"]) == _title_key(item["title"]))), None)
+            if key is not None:
                 old = merged[key]
                 old["pdf_url"] = old["pdf_url"] or item["pdf_url"]
                 old["oa"] = old["oa"] or item["oa"]
                 old["venue"] = old["venue"] or item["venue"]
                 old["abstract"] = old["abstract"] or item["abstract"]
+                old["year"] = old["year"] or item["year"]
                 old["providers"] = sorted(set(old.get("providers", [old["provider"]]) + [name]))
             else:
-                merged[key] = {**item, "providers": [name]}
+                merged[item["doi"] or _title_key(item["title"]) or item["title"]] = {**item, "providers": [name]}
     results = list(merged.values())
+    sent = {name: arxiv_query(query, year_from) if name == "arXiv" else query for name in providers}
     project.log_search({"provider": "+".join(providers), "query": query, "status": "success" if results or not errors else "failed",
-                        "limit": limit, "totals": totals, "errors": errors, "returned": len(results),
-                        "items": [{"title": r["title"], "doi": r["doi"], "url": r["url"]} for r in results]})
+                        "limit": limit, "filters": {"year_from": year_from}, "queries_sent": sent,
+                        "totals": totals, "received": received, "errors": errors, "returned": len(results),
+                        "items": [{"title": r["title"], "doi": r["doi"], "url": r["url"], "year": r["year"],
+                                   "providers": r["providers"]} for r in results]})
     if not results and errors:
         raise ValueError("검색 서버에 연결하지 못했습니다(" + ", ".join(errors) + "). PDF 직접 등록으로 계속할 수 있습니다.")
     return results

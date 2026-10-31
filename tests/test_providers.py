@@ -271,3 +271,40 @@ def test_synthesis_run_that_saved_nothing_is_a_failure(tmp_path, monkeypatch):
     _fake_claude(monkeypatch, lambda: None)
     with pytest.raises(ValueError, match="종합 결과가 저장되지 않았습니다"):
         providers.run_claude_code(p, run, "synthesis")
+
+
+def test_arxiv_words_must_all_match_and_phrases_stay_phrases():
+    assert providers.arxiv_query("generative AI productivity") == "all:generative AND all:AI AND all:productivity"
+    assert providers.arxiv_query('"knowledge work" experiment') == 'all:"knowledge work" AND all:experiment'
+    assert providers.arxiv_query("agents", 2024).startswith("all:agents AND submittedDate:[202401010000 TO ")
+
+
+def test_search_sends_the_year_to_servers_and_logs_what_is_shown(tmp_path, monkeypatch):
+    from deep_research.project import Project, read_json
+    p = Project(tmp_path / "projects" / "research").initialize()
+    sent = {}
+    atom = ('<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>http://arxiv.org/abs/2507.09089v2</id>'
+            "<title>Measuring AI Productivity</title><published>2025-07-10T00:00:00Z</published>"
+            "<summary>s</summary><author><name>A</name></author></entry></feed>")
+    def get(url, params=None, **kwargs):
+        sent[url] = params
+        request = httpx.Request("GET", url)
+        if "openalex" in url:
+            return httpx.Response(200, request=request, json={"meta": {"count": 2}, "results": [
+                {"display_name": "Measuring AI productivity", "publication_year": 2025, "doi": "https://doi.org/10.1/pub",
+                 "id": "W1", "open_access": {"is_oa": False}},
+                {"display_name": "Another study", "publication_year": 2024, "doi": "https://doi.org/10.1/other", "id": "W2"}]})
+        return httpx.Response(200, request=request, text=atom)
+    monkeypatch.setattr(httpx, "get", get)
+    results = providers.search_literature(p, "AI productivity", ["OpenAlex", "arXiv"], 20, 2024)
+    assert sent["https://api.openalex.org/works"]["filter"] == "publication_year:>2023"
+    assert "submittedDate:[202401010000" in sent["https://export.arxiv.org/api/query"]["search_query"]
+    # The preprint and the published paper are one row, with the open PDF kept.
+    assert len(results) == 2
+    merged = next(r for r in results if r["doi"] == "10.1/pub")
+    assert merged["providers"] == ["OpenAlex", "arXiv"] and merged["pdf_url"].startswith("https://arxiv.org/pdf/")
+    log = read_json(p.root / "search-log.json")[-1]
+    assert log["filters"] == {"year_from": 2024}
+    assert log["returned"] == len(results) == len(log["items"])
+    assert log["received"] == {"OpenAlex": 2, "arXiv": 1}
+    assert log["queries_sent"]["arXiv"].startswith("all:AI AND all:productivity AND submittedDate:")
