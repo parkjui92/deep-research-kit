@@ -37,6 +37,12 @@ def candidate_queue(project):
                               icon=":material/fact_check:", help="Crossref에 DOI만 보내 철회·정정·우려 표명 고지를 조회합니다. Crossref에 없는 DOI(arXiv 등)는 OpenAlex의 철회 표시만 봅니다."):
         _check_candidates(project, with_doi, catalog)
         st.rerun()
+    waiting = [i for i in items if not i.get("source_id") and (i.get("reading") or {}).get("state", "next") != "done"]
+    if waiting and st.button(f"PDF 없는 후보 {len(waiting)}편 공개 PDF 한꺼번에 찾기", key="wb_collect_all",
+                             icon=":material/download:", help="후보마다 공개 사본(OA 주소·arXiv·Unpaywall 등)을 찾아 등록합니다. "
+                             "'다 읽음'으로 둔 후보는 빼고, 받지 못한 것은 「PDF를 아직 받지 못한 문헌」에 남습니다."):
+        _collect_all(project, waiting)
+        st.rerun()
     keys = [notebook.candidate_key(i) for i in items]
     if st.session_state.get("wb_candidate") not in keys:
         st.session_state["wb_candidate"] = keys[0]
@@ -88,6 +94,21 @@ def candidate_queue(project):
             result = collect(project, item)
         st.session_state["flash"] = "PDF를 등록했습니다." if result.get("source_id") else "공개 PDF를 확보하지 못했습니다. 내 PDF에서 파일을 직접 연결할 수 있습니다."
         st.rerun()
+
+
+def _collect_all(project, items):
+    from deep_research.providers import collect
+    bar = st.progress(0.0, text=f"0/{len(items)}편 · 공개 PDF를 찾는 중")
+    got = 0
+    for n, item in enumerate(items, 1):
+        try:
+            got += bool(collect(project, item).get("source_id"))
+        except ValueError:
+            pass  # a broken or duplicate file: the candidate stays as it was
+        bar.progress(n / len(items), text=f"{n}/{len(items)}편 · PDF {got}편 등록")
+    st.session_state["flash"] = (f"{len(items)}편 가운데 {got}편의 PDF를 등록했습니다."
+                                 + (f" 나머지 {len(items) - got}편은 「PDF를 아직 받지 못한 문헌」에서 내 브라우저로 받으세요."
+                                    if got < len(items) else ""))
 
 
 def _check_candidates(project, items, catalog):

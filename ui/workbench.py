@@ -195,23 +195,23 @@ def _comparison(project, run_id, included, config):
                       if new_sources or len(all_fields) > len(run_fields) else ""))
         if run["config"]["plan"]["question"] != config["plan"]["question"]:
             st.caption("이 실행의 질문 · " + ui.md(run["config"]["plan"]["question"]))
-    with st.expander("검색·검토 상태·표시 항목"):
-        a, b, c = st.columns([2, 1, 1.2])
-        query = a.text_input("비교표 검색", placeholder="제목·저자·추출값·원문 구절", key="wb_find")
-        status = b.selectbox("검토 상태", FILTERS, key="wb_filter")
-        st.session_state.setdefault("wb_layout", "비교표")
-        layout = c.segmented_control("검토 방식", ["비교표", "집중 검토"], key="wb_layout") or "비교표"
-        field_ids = [f["id"] for f in all_fields]
-        if "wb_columns" in st.session_state:
-            valid_columns = [f for f in st.session_state["wb_columns"] if f in field_ids]
-            if valid_columns != st.session_state["wb_columns"]:
-                st.session_state["wb_columns"] = valid_columns
-        else:
-            st.session_state["wb_columns"] = [f for f in field_ids if f in {"finding", "limitations"}] or field_ids[:2]
-        with st.expander("표시 항목 선택", icon=":material/view_column:"):
-            selected_fields = st.multiselect("비교할 항목 (한 번에 최대 6개)", field_ids,
-                                             max_selections=6, key="wb_columns",
-                                             format_func=lambda fid: next(f["name"] for f in all_fields if f["id"] == fid))
+    # One line of controls above the table: the table itself stays above the fold.
+    a, b, c, d = st.columns([2, 1, 1.2, 1], vertical_alignment="bottom")
+    query = a.text_input("비교표 검색", placeholder="제목·저자·추출값·원문 구절", key="wb_find")
+    status = b.selectbox("검토 상태", FILTERS, key="wb_filter")
+    st.session_state.setdefault("wb_layout", "비교표")
+    layout = c.segmented_control("검토 방식", ["비교표", "집중 검토"], key="wb_layout") or "비교표"
+    field_ids = [f["id"] for f in all_fields]
+    if "wb_columns" in st.session_state:
+        valid_columns = [f for f in st.session_state["wb_columns"] if f in field_ids]
+        if valid_columns != st.session_state["wb_columns"]:
+            st.session_state["wb_columns"] = valid_columns
+    else:
+        st.session_state["wb_columns"] = field_ids[:4]
+    with d.popover(f"표시 항목 {len(st.session_state['wb_columns'])}/{len(field_ids)}", icon=":material/view_column:", width="stretch"):
+        selected_fields = st.multiselect("비교할 항목 (한 번에 최대 6개)", field_ids,
+                                         max_selections=6, key="wb_columns",
+                                         format_func=lambda fid: next(f["name"] for f in all_fields if f["id"] == fid))
     fields = [f for f in all_fields if f["id"] in selected_fields]
     sources = [project.with_bib(s) for s in run["sources"]]
     visible = filter_evidence(rows, sources, query, status, set(selected_fields))
@@ -247,10 +247,12 @@ def _comparison(project, run_id, included, config):
                 row = next(r for r in visible if r["id"] == st.session_state["wb_pick"])
                 source = next(s for s in run["sources"] if s["id"] == row["source_id"])
                 field = next(f["name"] for f in fields if f["id"] == row["field_id"])
-                st.button("PDF와 나란히 크게 검토", key="wb_focus", on_click=_focus)
-                _detail(project, run_id, row, source, field, visible)
-                with st.expander("원문 PDF 펼치기"):
-                    _evidence_pdf(project, row)
+                a, b = st.columns(2, vertical_alignment="center")
+                a.button("PDF와 나란히 크게 검토", key="wb_focus", on_click=_focus)
+                # The review form asks whether the context around the quote was read, so the page
+                # it came from is shown right under the quote, not folded away (#UX-2).
+                inline = b.toggle("원문 PDF 함께 보기", value=True, key="wb_pdf_inline")
+                _detail(project, run_id, row, source, field, visible, pdf=inline)
         else:
             index = ids.index(st.session_state["wb_pick"])
             a, b, c = st.columns([1, 3, 1])
@@ -334,7 +336,7 @@ def _evidence_pdf(project, row):
         ui.show_pdf(project, row["source_id"], identity="wb-" + row["id"], caption="이 항목은 읽은 범위에서 찾지 못했습니다. 원문을 넘기며 직접 확인하세요.")
 
 
-def _detail(project, run_id, row, source, field_name, rows):
+def _detail(project, run_id, row, source, field_name, rows, pdf=False):
     with st.container(border=True):
         a, b = st.columns(2)
         with a:
@@ -356,6 +358,8 @@ def _detail(project, run_id, row, source, field_name, rows):
         translation.control(project, _foreign_texts(row), "ev_" + row["id"], "이 근거의 영문 한글 번역", compact=True, paste=False)
         if geometry := ui.geometry_note(row):
             st.warning(geometry, icon=":material/crop_rotate:")
+        if pdf:
+            _evidence_pdf(project, row)
         # What the model was given and what it wrote about its own reading are different things (#20).
         scope = row["page_scope"]
         if row["note"]:
@@ -971,23 +975,62 @@ def _export_popover(project, runs):
 
 
 def _synthesis_controls(project, run_id):
-    from deep_research.providers import claude_code_status, run_claude_code
+    """Three ways to the same checked import: Claude Code, a configured API, or a web AI."""
+    import os
+
+    from deep_research.providers import claude_code_status, run_claude_code, synthesize_with_api
+    from deep_research.translate import parse_answer
     approved = flow.accepted(project, run_id)
     st.markdown(f"**종합문(선택)** · 채택 근거 {len(approved)}건으로 AI 초안")
-    st.caption("실행하면 채택한 값·발췌·조사 설정을 Claude Code에 전달합니다. 이용 조건과 사용량이 적용됩니다.")
-    if st.button("종합 요청 만들기", disabled=not approved, key="wb_synth"):
+    if not approved:
+        st.caption("채택한 근거가 하나 이상 있어야 종합할 수 있습니다.")
+        return
+    st.caption("어느 경로든 채택한 값·발췌·조사 설정만 전달하고, 돌아온 주장은 근거 ID를 확인한 뒤에만 저장합니다. "
+               "AI 이용 조건과 사용량은 제공자 기준입니다.")
+    if "drk_claude_ready" not in st.session_state:
+        st.session_state["drk_claude_ready"] = claude_code_status()["available"]
+    api_ready = bool(os.environ.get("DRK_API_BASE") and os.environ.get("DRK_MODEL"))
+    a, b = st.columns(2)
+    if a.button("Claude Code로 종합", key="wb_synth", disabled=not st.session_state["drk_claude_ready"], width="stretch",
+                help=None if st.session_state["drk_claude_ready"] else "Claude Code가 없거나 실행할 수 없습니다. 웹 AI 경로를 쓰세요."):
         flow.prepare_synthesis(project, run_id)
-        status = claude_code_status()
-        if status["available"]:
-            with st.spinner("Claude Code가 채택 근거를 종합하는 중"):
+        with st.spinner("Claude Code가 채택 근거를 종합하는 중"):
+            try:
+                run_claude_code(project, run_id, "synthesis")
+            except ValueError as exc:
+                st.error(ui.md(str(exc)))  # no rerun: it would clear the message
+            else:
+                st.rerun()
+    if api_ready:
+        consent = b.checkbox("채택 근거를 설정한 API 서버로 보냄", key="wb_synth_api_ok")
+        if b.button("설정한 API로 종합", key="wb_synth_api", disabled=not consent, width="stretch"):
+            with st.spinner("설정한 API로 종합하는 중"):
                 try:
-                    run_claude_code(project, run_id, "synthesis")
-                except ValueError as exc:
-                    st.error(ui.md(str(exc)))  # no rerun: it would clear the message
+                    synthesize_with_api(project, run_id)
+                except (ValueError, TypeError) as exc:
+                    st.error(ui.md(str(exc)))
                 else:
                     st.rerun()
-        else:
-            st.warning(status["reason"] + " 요청문은 「단계별 보기 → 5 · 종합」에 있습니다.")
+    else:
+        b.caption("설정한 API 없음 · README ‘선택 API’ 참고")
+    with st.expander("웹 AI(Claude·ChatGPT 등)로 종합", icon=":material/content_paste:",
+                     expanded="wb_synth_request" in st.session_state):
+        st.caption("요청 JSON을 웹 AI에 붙여 넣고, 돌아온 JSON을 아래에 붙여 넣습니다. request_id를 바꾸지 않아야 저장됩니다.")
+        if st.button("요청 JSON 만들기", key="wb_synth_make"):
+            request = flow.prepare_synthesis(project, run_id)
+            st.session_state["wb_synth_request"] = json.dumps(request, ensure_ascii=False, indent=1)
+        if text := st.session_state.get("wb_synth_request"):
+            st.code(text, language="json")
+            with st.form("wb_synth_paste"):
+                answer = st.text_area("웹 AI의 응답(JSON)", height=120)
+                if st.form_submit_button("종합 저장"):
+                    try:
+                        flow.import_synthesis(project, run_id, parse_answer(answer))
+                    except (ValueError, TypeError) as exc:
+                        st.error(str(exc))
+                    else:
+                        st.session_state.pop("wb_synth_request", None)
+                        st.rerun()
     if flow.current_synthesis(project, run_id):
         st.success("종합문이 준비됐습니다. 「종합·출처」 탭에서 각 주장의 근거를 확인하세요.")
 

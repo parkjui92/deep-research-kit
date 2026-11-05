@@ -311,9 +311,17 @@ def evidence_caption(locators, focus=0) -> str:
     return "주황 테두리 = AI가 이 값을 뽑아낸 원문 문장." + where + " 자리가 맞다는 뜻이지 값이 옳다는 뜻은 아닙니다."
 
 
+@st.cache_data(max_entries=4, show_spinner=False)
+def _pdf_bytes(path: str, size: int, mtime_ns: int) -> bytes:
+    """The PDF read once per version (size and mtime are part of the key), not on every click."""
+    return Path(path).read_bytes()
+
+
 def show_pdf(project, source_id, locators=None, page=1, identity="source", caption=None, focus=0):
     project.index(source_id)
-    data = (project.source_dir(source_id) / "original.pdf").read_bytes()
+    path = project.source_dir(source_id) / "original.pdf"
+    info = path.stat()
+    data = _pdf_bytes(str(path), info.st_size, info.st_mtime_ns)
     view = pdf_view(locators, focus, page)
     key = flow.fingerprint([source_id, identity, view])[:20]
     zoom = st.slider("원문 확대", 0.8, 2.5, 1.0, 0.1, key="zoom-" + source_id)

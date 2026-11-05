@@ -99,6 +99,8 @@ def library(project):
         check_integrity(project, [s["id"] for s in with_doi])
         st.rerun()
     ids = [s["id"] for s in visible]
+    if (jump := st.session_state.pop("wb_library_next", None)) in ids:
+        st.session_state["wb_library_pick"] = jump
     if st.session_state.get("wb_library_pick") not in ids:
         st.session_state["wb_library_pick"] = ids[0]
     sid = st.selectbox("선별할 문헌", ids, key="wb_library_pick",
@@ -123,7 +125,14 @@ def library(project):
                 except ValueError as exc:
                     st.error(str(exc))
                 else:
-                    st.session_state["flash"] = "선별 판단을 저장했습니다. 이전 판단은 이력에 남습니다."
+                    # Straight on to the next undecided paper, after this one in the list, then from the top.
+                    order = ids[ids.index(sid) + 1:] + ids[:ids.index(sid)]
+                    undecided = {s["id"] for s in project.catalog() if s["decision"] == "pending"}
+                    following = next((i for i in order if i in undecided), None)
+                    if following:
+                        st.session_state["wb_library_next"] = following
+                    st.session_state["flash"] = ("선별 판단을 저장했습니다. 이전 판단은 이력에 남습니다."
+                                                 + (" 다음 미선별 문헌으로 넘어갑니다." if following else " 미선별 문헌이 없습니다."))
                     st.rerun()
         with st.expander("서지·인용 문구"):
             st.code(citation(source), language=None, wrap_lines=True)

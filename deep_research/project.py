@@ -5,6 +5,7 @@ import os
 import re
 import tempfile
 import uuid
+from collections import OrderedDict
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -61,6 +62,14 @@ DEFAULT_RULES = """질문에 대한 답을 근거 ID와 함께 작성한다.
 일치·상충·불확실성을 구분한다. 못 찾은 결과를 효과가 없다는 증거로 쓰지 않는다.
 검토 보류·제외·원문 미확인 근거를 결론에서 제외한다.
 """
+
+
+_VERIFIED: OrderedDict = OrderedDict()  # (paths, stats, hashes) -> index that passed the full check
+
+
+def _stat(path: Path):
+    info = path.stat()
+    return info.st_size, info.st_mtime_ns
 
 
 def now() -> str:
@@ -207,14 +216,28 @@ class Project:
     def index(self, source_id):
         source = self.source(source_id)
         path = self.source_dir(source_id) / "original.pdf"
+        index_path = self.source_dir(source_id) / "index.json"
+        # Hashing a large PDF on every click is slow. A file whose size and modification time are
+        # unchanged since it last passed the full check, for the same recorded hashes, is not hashed
+        # again in this process; any write to either file changes the stamp and brings the check back.
+        try:
+            stamp = (str(path), _stat(path), _stat(index_path), source["sha256"], source.get("index_sha256"))
+        except OSError:
+            stamp = None
+        if stamp is not None and stamp in _VERIFIED:
+            _VERIFIED.move_to_end(stamp)
+            return _VERIFIED[stamp]
         if digest(path.read_bytes()) != source["sha256"]:
             raise ValueError(f"원본 파일이 변경되었습니다: {source_id}. 새 자료로 등록하세요.")
-        index_path = self.source_dir(source_id) / "index.json"
         if digest(index_path.read_bytes()) != source["index_sha256"]:
             raise ValueError("원문 색인이 변경되었습니다. 원본에서 다시 등록하세요.")
         index = read_json(index_path)
         if index["sha256"] != source["sha256"]:
             raise ValueError("원문 색인과 파일이 일치하지 않습니다.")
+        if stamp is not None:
+            _VERIFIED[stamp] = index
+            while len(_VERIFIED) > 32:
+                _VERIFIED.popitem(last=False)
         return index
 
     def add_pdf(self, data: bytes, filename: str, title: str = "", doi: str = "", url: str = ""):
