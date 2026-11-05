@@ -1,6 +1,8 @@
-"""Optional HTTP adapters. Credentials are read only from environment, never exported."""
+"""Optional HTTP adapters. Credentials come from the environment, a local key file or the current browser session; never exported."""
+import contextvars
 import json
 import os
+from pathlib import Path
 
 import httpx
 
@@ -73,9 +75,13 @@ def crossref_search(project, query, limit=10):
 # Metadata-only candidates stay in collection.json so the search trail is auditable.
 # ---------------------------------------------------------------------------
 OPENALEX = "https://api.openalex.org/works"
-RATE_LIMIT_HINT = ("OpenAlex는 키 없이 쓰면 같은 네트워크의 사용자가 하루 무료 한도를 나눠 씁니다. "
-                   "자료원에서 Crossref·arXiv를 고르거나, 내일 다시 하거나, openalex.org에서 무료 키를 받아 "
-                   "환경변수 OPENALEX_API_KEY에 넣고 앱을 다시 시작하세요.")
+RATE_LIMIT_HINT = ("OpenAlex는 키 없이 쓰면 같은 네트워크(강의실 와이파이 등)의 사용자가 하루 무료 한도를 나눠 씁니다. "
+                   "openalex.org/settings/api 에서 무료 키를 받아 검색 창의 「OpenAlex 개인 키」에 넣거나 "
+                   "(이 브라우저 창에서만 쓰고 저장하지 않음), 환경변수 OPENALEX_API_KEY 또는 키 파일 "
+                   "~/.config/deep-research-kit/openalex.key 에 두세요. 키 없이 하려면 자료원에서 Crossref·arXiv를 고르세요.")
+OWN_KEY_LIMIT_HINT = ("넣은 OpenAlex 키의 하루 한도를 다 썼습니다. 한국 시각 오전 9시(UTC 자정)에 다시 채워집니다. "
+                      "그때까지는 자료원에서 Crossref·arXiv를 고르세요.")
+BAD_KEY_HINT = "OpenAlex가 키를 받지 않았습니다(HTTP 401). 키를 빠짐없이 붙여 넣었는지 확인하거나 키 칸을 비우세요."
 UA = {"User-Agent": "deep-research-kit/0.2 (mailto:drk@example.org)"}
 
 
@@ -92,10 +98,45 @@ def _candidate(**kw):
     return base
 
 
+_SESSION_KEY = contextvars.ContextVar("drk_openalex_key", default="")
+
+
+def use_session_key(key):
+    """The key one person typed into this browser session. The app sets it at the top of every
+    run, so it never carries over to another person's session and is never written to disk."""
+    _SESSION_KEY.set((key or "").strip())
+
+
+def _key_files():
+    home = Path.home()
+    return [home / ".config" / "deep-research-kit" / "openalex.key",
+            home / ".config" / "sci-concentration" / "openalex.key"]
+
+
+def openalex_key():
+    """(key, where it came from). Order: this session's input, env OPENALEX_API_KEY, key file."""
+    if _SESSION_KEY.get():
+        return _SESSION_KEY.get(), "session"
+    env = os.environ.get("OPENALEX_API_KEY", "").strip()
+    if env:
+        return env, "env"
+    for path in _key_files():
+        try:
+            text = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if text:
+            return text, "file"
+    return "", None
+
+
+KEY_SOURCE = {"session": "이 창에 넣은 키", "env": "환경변수 OPENALEX_API_KEY", "file": "키 파일", None: "키 없음(공용 한도)"}
+
+
 def openalex_key_params():
-    """OpenAlex's free personal key (env OPENALEX_API_KEY) gives its own daily budget. Without one,
-    every user on the same network shares a small budget and searches start failing with HTTP 429."""
-    key = os.environ.get("OPENALEX_API_KEY", "").strip()
+    """OpenAlex's free personal key gives its own daily budget. Without one, every user on the
+    same network shares a small budget and searches start failing with HTTP 429."""
+    key, _ = openalex_key()
     return {"api_key": key} if key else {}
 
 
@@ -247,10 +288,21 @@ def search_literature(project, query, providers=("OpenAlex",), limit=20, year_fr
                                    "providers": r["providers"], "merged_dois": r["merged_dois"]} for r in results]})
     if not results and errors:
         detail = ", ".join(f"{k} {v}" for k, v in errors.items())
-        if "OpenAlex" in errors and "429" in errors["OpenAlex"]:
-            raise ValueError(f"검색하지 못했습니다({detail}). " + RATE_LIMIT_HINT)
+        hint = openalex_hint(errors)
+        if hint:
+            raise ValueError(f"검색하지 못했습니다({detail}). " + hint)
         raise ValueError(f"검색 서버에 연결하지 못했습니다({detail}). PDF 직접 등록으로 계속할 수 있습니다.")
     return results
+
+
+def openalex_hint(errors):
+    """What to do about an OpenAlex error, or "" when there is nothing OpenAlex-specific to say."""
+    error = (errors or {}).get("OpenAlex", "")
+    if "429" in error:
+        return OWN_KEY_LIMIT_HINT if openalex_key()[0] else RATE_LIMIT_HINT
+    if "401" in error or "403" in error:
+        return BAD_KEY_HINT if openalex_key()[0] else RATE_LIMIT_HINT
+    return ""
 
 
 def fetch_pdf(url, timeout=60):

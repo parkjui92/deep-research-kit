@@ -5,6 +5,7 @@ from pathlib import Path
 import streamlit as st
 
 from deep_research.project import Project, read_json
+from deep_research.providers import use_session_key
 from ui import chrome as ui
 from ui.pages import PAGES
 from ui.start import start_page
@@ -107,6 +108,8 @@ def sidebar(existing):
 
 
 def main():
+    # A key typed into this browser session applies to this run only (never saved, never shared).
+    use_session_key(st.session_state.get("drk_openalex_key"))
     existing = sorted(p.name for p in PROJECTS.iterdir() if (p / "project.json").exists())
     project = sidebar(existing)
     if project is None:

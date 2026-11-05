@@ -135,7 +135,13 @@ projects/<name>/
 
 기본 저장 위치는 저장소의 `projects/`입니다. 환경변수 `DRK_PROJECTS_DIR`로 다른 로컬 저장 폴더를 지정할 수 있습니다. 서버가 다른 컴퓨터에서 실행된다면 자료도 그 컴퓨터에 저장됩니다. 웹 동기화·계정 인증·공동 편집 기능은 없습니다. 기본 실행 명령은 `127.0.0.1`에만 연결합니다.
 
-OpenAlex는 키 없이 쓰면 같은 네트워크의 사용자가 하루 무료 한도를 나눠 쓰므로, 검색이 `HTTP 429`로 막힐 수 있습니다. 그때는 Crossref·arXiv를 고르거나, [OpenAlex](https://openalex.org/settings/api)에서 무료 키를 받아 환경변수 `OPENALEX_API_KEY`에 넣고 앱을 다시 시작하세요. 키는 검색 기록·내보내기에 저장하지 않습니다.
+OpenAlex는 키 없이 쓰면 같은 네트워크(강의실 와이파이 등)의 사용자가 하루 무료 한도를 나눠 쓰므로, 검색이 `HTTP 429`로 금방 막힙니다. 각자 [OpenAlex](https://openalex.org/settings/api)에서 무료 키를 받아 쓰세요. 앱은 다음 순서로 키를 찾습니다.
+
+1. 검색 창의 「OpenAlex 개인 키」 칸에 넣은 키: 그 브라우저 창에서만 쓰고 파일에 저장하지 않습니다. 여럿이 앱 하나를 함께 열어도 서로의 키가 섞이지 않습니다.
+2. 환경변수 `OPENALEX_API_KEY`
+3. 키 파일 `~/.config/deep-research-kit/openalex.key`(또는 sci-concentration이 쓰는 `~/.config/sci-concentration/openalex.key`)
+
+키는 검색 기록·내보내기에 저장하지 않습니다. 429가 나면 검색 창에 「Crossref·arXiv로 다시 검색」 버튼이 뜹니다. Crossref·arXiv는 키도 하루 한도도 없지만 초당 호출 제한이 있고, Crossref는 초록이 없는 문헌이 많으며 arXiv는 프리프린트만 있습니다. 넣은 키의 하루 한도를 다 쓰면 한국 시각 오전 9시(UTC 자정)에 다시 채워집니다.
 
 ## 선택 API
 

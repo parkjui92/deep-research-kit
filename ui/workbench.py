@@ -465,35 +465,83 @@ def _question_notice(project, config, key):
     st.warning("조사 질문이 아직 예시 그대로입니다. 「조사 설정 → 질문·선별 기준 편집」에서 내 질문을 먼저 적어 주세요.", icon=":material/edit_note:")
 
 
+def _apply_key():
+    from deep_research.providers import use_session_key
+    key = (st.session_state.get("wb_openalex_key_input") or "").strip()
+    st.session_state["drk_openalex_key"] = key
+    use_session_key(key)
+
+
+def _clear_key():
+    from deep_research.providers import use_session_key
+    st.session_state["wb_openalex_key_input"] = ""
+    st.session_state.pop("drk_openalex_key", None)
+    use_session_key("")
+
+
+def _key_box():
+    """Each person may bring a free OpenAlex key; it lives in this browser session only."""
+    from deep_research.providers import KEY_SOURCE, openalex_key
+    _, source = openalex_key()
+    with st.expander(f"OpenAlex 개인 키 (선택) · 지금: {KEY_SOURCE[source]}", icon=":material/key:"):
+        st.caption("키 없이도 검색되지만, 같은 와이파이를 쓰는 사람들과 하루 무료 한도를 나눠 써서 금방 막힙니다. "
+                   "[openalex.org](https://openalex.org/settings/api)에서 무료 키를 받아 넣으면 내 한도로 검색합니다. "
+                   "넣은 키는 이 브라우저 창에서만 쓰고 파일·검색 기록·내보내기에 저장하지 않습니다.")
+        st.text_input("OpenAlex 키", type="password", key="wb_openalex_key_input", on_change=_apply_key,
+                      placeholder="키를 붙여 넣고 Enter")
+        if source == "session":
+            st.button("이 창의 키 지우기", key="wb_key_clear", on_click=_clear_key)
+
+
+def _run_search(project, query, providers, limit, year_from):
+    from deep_research.providers import openalex_hint, search_literature
+    st.session_state.pop("wb_results", None)
+    st.session_state.pop("wb_results_query", None)
+    st.session_state.pop("wb_fallback", None)
+    retry = {"query": query, "limit": limit, "year_from": year_from}
+    try:
+        with st.spinner("학술 자료원을 검색하고 중복 문헌을 합치는 중"):
+            results = search_literature(project, query, providers, limit, year_from or None)
+    except ValueError as exc:
+        st.error(str(exc))
+        # search_literature logs every search before it raises; an empty query is refused before that.
+        log = read_json(project.root / "search-log.json")[-1] if query.strip() else {}
+        if openalex_hint(log.get("errors")):
+            st.session_state["wb_fallback"] = retry
+        return
+    st.session_state["wb_results"] = results
+    st.session_state["wb_results_query"] = query
+    for key in ("wb_results_editor", "wb_result_pick", "wb_result_find", "wb_result_oa", "wb_result_order"):
+        st.session_state.pop(key, None)
+    if not results:
+        st.info("검색 결과가 없습니다. 검색어를 줄이거나 연도 범위를 넓혀 보세요.")
+    log = read_json(project.root / "search-log.json")[-1]
+    if results and not log.get("errors"):
+        st.rerun()  # the progress strip above counts this search too
+    if log.get("errors"):
+        hint = openalex_hint(log["errors"])
+        st.warning("일부 자료원에서 결과를 받지 못했습니다: " + ", ".join(f"{k} {v}" for k, v in log["errors"].items())
+                   + ". 나머지 결과를 표시합니다." + (" " + hint if hint else ""))
+        if hint and not {"Crossref", "arXiv"} <= set(providers):
+            st.session_state["wb_fallback"] = retry
+
+
 def _search_popover(project):
-    from deep_research.providers import RATE_LIMIT_HINT, search_literature
     st.caption("학술 자료원에 검색어를 보냅니다. 내 PDF·노트는 전송하지 않습니다.")
+    _key_box()
     with st.form("wb_search_form"):
         query = st.text_input("검색어", key="wb_q", placeholder="연구 주제를 입력하세요 · 예: generative AI knowledge work productivity")
         a, b, c = st.columns([2, 1, 1])
         providers = a.multiselect("학술 자료원", ["OpenAlex", "arXiv", "Crossref"], default=["OpenAlex"], key="wb_prov")
         year_from = b.number_input("발행연도 이후 (0=전체)", 0, 2100, 0, key="wb_year")
         limit = c.number_input("자료원별 최대 건수", 5, 50, 20, key="wb_limit")
-        if st.form_submit_button("문헌 검색", type="primary", icon=":material/search:"):
-            st.session_state.pop("wb_results", None)
-            st.session_state.pop("wb_results_query", None)
-            try:
-                with st.spinner("학술 자료원을 검색하고 중복 문헌을 합치는 중"):
-                    results = search_literature(project, query, providers or ["OpenAlex"], limit, year_from or None)
-                st.session_state["wb_results"] = results
-                st.session_state["wb_results_query"] = query
-                for key in ("wb_results_editor", "wb_result_pick", "wb_result_find", "wb_result_oa", "wb_result_order"):
-                    st.session_state.pop(key, None)
-                if not results:
-                    st.info("검색 결과가 없습니다. 검색어를 줄이거나 연도 범위를 넓혀 보세요.")
-                log = read_json(project.root / "search-log.json")[-1]
-                if results and not log.get("errors"):
-                    st.rerun()  # the progress strip above counts this search too
-                if log.get("errors"):
-                    st.warning("일부 자료원에서 결과를 받지 못했습니다: " + ", ".join(f"{k} {v}" for k, v in log["errors"].items())
-                               + ". 나머지 결과를 표시합니다." + (" " + RATE_LIMIT_HINT if "429" in str(log["errors"]) else ""))
-            except ValueError as exc:
-                st.error(str(exc))
+        submitted = st.form_submit_button("문헌 검색", type="primary", icon=":material/search:")
+    if submitted:
+        _run_search(project, query, providers or ["OpenAlex"], limit, year_from)
+    fallback = st.session_state.get("wb_fallback")
+    if fallback and st.button("Crossref·arXiv로 다시 검색", key="wb_fallback_go", icon=":material/refresh:",
+                              help="키 없이 쓸 수 있는 자료원입니다. 초록이 없는 문헌이 많고, arXiv는 프리프린트만 있습니다."):
+        _run_search(project, fallback["query"], ["Crossref", "arXiv"], fallback["limit"], fallback["year_from"])
     st.caption("OpenAlex · arXiv · Crossref에서 검색합니다. 관련도순은 각 자료원이 반환한 순서이며 자료원 간 통합 점수가 아닙니다.")
 
 

@@ -150,3 +150,83 @@ def test_openalex_rate_limit_is_named_and_key_is_sent(monkeypatch, tmp_path):
         providers.search_literature(p, "ai productivity")
     assert seen[-1]["api_key"] == "k-test"
     assert "k-test" not in (tmp_path / "p" / "search-log.json").read_text(encoding="utf-8")
+
+
+def test_key_order_session_then_env_then_file(monkeypatch, tmp_path):
+    from deep_research import providers
+    assert providers.openalex_key() == ("", None) and providers.openalex_key_params() == {}
+    key_file = tmp_path / "openalex.key"
+    key_file.write_text("  k-file \n", encoding="utf-8")
+    monkeypatch.setattr(providers, "_key_files", lambda: [tmp_path / "missing.key", key_file])
+    assert providers.openalex_key() == ("k-file", "file")
+    monkeypatch.setenv("OPENALEX_API_KEY", "k-env")
+    assert providers.openalex_key() == ("k-env", "env")
+    providers.use_session_key(" k-session ")
+    assert providers.openalex_key() == ("k-session", "session")
+    assert providers.openalex_key_params() == {"api_key": "k-session"}
+    providers.use_session_key("")
+    assert providers.openalex_key()[1] == "env"
+
+
+def test_hint_depends_on_whether_a_key_was_used(monkeypatch):
+    from deep_research import providers
+    assert providers.openalex_hint({"arXiv": "HTTP 503"}) == ""
+    assert providers.openalex_hint({"OpenAlex": "한도 초과(HTTP 429)"}) == providers.RATE_LIMIT_HINT
+    providers.use_session_key("k")
+    assert providers.openalex_hint({"OpenAlex": "한도 초과(HTTP 429)"}) == providers.OWN_KEY_LIMIT_HINT
+    assert providers.openalex_hint({"OpenAlex": "HTTP 401"}) == providers.BAD_KEY_HINT
+
+
+def test_session_key_is_sent_but_never_logged(monkeypatch, tmp_path):
+    from deep_research import providers
+    from deep_research.project import Project
+    p = Project(tmp_path / "p").initialize()
+    seen = []
+    def get(url, params=None, **kwargs):
+        seen.append(params)
+        return httpx.Response(200, json={"results": [], "meta": {"count": 0}}, request=httpx.Request("GET", url))
+    monkeypatch.setattr(httpx, "get", get)
+    providers.use_session_key("k-secret")
+    providers.search_literature(p, "ai productivity")
+    assert seen[-1]["api_key"] == "k-secret"
+    assert "k-secret" not in (tmp_path / "p" / "search-log.json").read_text(encoding="utf-8")
+
+
+def test_search_box_offers_key_field_and_keyless_retry(tmp_path, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+    from test_ui import _button, _workbench_script
+
+    from deep_research import providers
+    from deep_research.project import Project
+    p = Project(tmp_path / "search").initialize()
+    calls = []
+    def limited(*a, **kw):
+        calls.append("OpenAlex")
+        request = httpx.Request("GET", providers.OPENALEX)
+        raise httpx.HTTPStatusError("429", request=request, response=httpx.Response(429, request=request))
+    def keyless(name):
+        def search(*a, **kw):
+            calls.append(name)
+            return 1, [providers._candidate(provider=name, title=f"{name} hit", doi=f"10.1/{name.lower()}")]
+        return search
+    monkeypatch.setitem(providers.PROVIDERS, "OpenAlex", limited)
+    monkeypatch.setitem(providers.PROVIDERS, "Crossref", keyless("Crossref"))
+    monkeypatch.setitem(providers.PROVIDERS, "arXiv", keyless("arXiv"))
+    app = AppTest.from_function(_workbench_script, args=(str(p.root),)).run(timeout=60)
+    assert not app.exception
+    assert any(t.label == "OpenAlex 키" for t in app.text_input)
+    app.text_input(key="wb_q").set_value("ai productivity")
+    _button(app, "문헌 검색").click().run(timeout=60)
+    assert not app.exception and calls == ["OpenAlex"]
+    assert any("검색 창의 「OpenAlex 개인 키」" in e.value for e in app.error)
+    app.button(key="wb_fallback_go").click().run(timeout=60)
+    assert not app.exception and calls[1:] == ["Crossref", "arXiv"]
+    assert st_results(app) == 2
+    app.text_input(key="wb_openalex_key_input").input("k-mine").run(timeout=60)
+    assert not app.exception
+    assert any("지금: 이 창에 넣은 키" in e.label for e in app.expander)
+    assert "k-mine" not in (p.root / "search-log.json").read_text(encoding="utf-8")
+
+
+def st_results(app):
+    return len(app.session_state["wb_results"])
