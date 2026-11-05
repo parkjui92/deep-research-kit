@@ -48,17 +48,24 @@ def _answered_runs(project):
 
 
 def _cell(row):
+    """The value on top, then its review state and source page on a line of their own, so the
+    eye can run down a column of values without reading symbols glued to the text."""
     if row is None:
         return ""
     if row["value"] is None:
         return "—"
-    mark = GLYPH.get(row["review"]["status"], "○")
-    if row["match_status"] != "matched" and row["review"]["status"] == "pending":
-        mark = "?"
     sentences = _sentences(display_value(row) or "")
     if len(sentences) > 1:  # a longer value (#29): the first sentence, the rest in the detail panel
-        return f"{mark} {ui.short(sentences[0], 46)} 외 {len(sentences) - 1}문장"
-    return f"{mark} {ui.short(display_value(row) or '', 60)}"
+        text = f"{ui.short(sentences[0], 46)} 외 {len(sentences) - 1}문장"
+    else:
+        text = ui.short(display_value(row) or "", 60)
+    status = row["review"]["status"]
+    if row["match_status"] != "matched" and status == "pending":
+        state = "? 위치 미확인"
+    else:
+        state = f"{GLYPH.get(status, '○')} {ui.word(ui.REVIEW, status)}"
+    page = next((loc["page"] for loc in row.get("locators") or [] if loc.get("page")), None)
+    return f"{text}\n\n{state}" + (f" · p.{page}" if page else "")
 
 
 def _sentences(text):
@@ -263,6 +270,17 @@ def _comparison(project, run_id, included, config):
                 _inspector(project, run_id, run, visible, fields)
 
 
+def _passage_text(project, source_id, locator):
+    """The indexed passage a quote was taken from (stored on the locator since #22, else looked up)."""
+    if locator.get("context"):
+        return locator["context"]
+    try:
+        passages = project.index(source_id)["passages"]
+    except (ValueError, OSError):
+        return ""
+    return next((p["text"] for p in passages if p["id"] == locator.get("passage_id")), "")
+
+
 def _foreign_texts(row):
     """The value and the quotes of one evidence row; quotes the extraction already translated are skipped."""
     return [display_value(row) or ""] + [loc["quote"] for loc in row["locators"] if not loc.get("translation")]
@@ -355,6 +373,8 @@ def _detail(project, run_id, row, source, field_name, rows, pdf=False):
         many = len(row["locators"]) > 1
         for i, locator in enumerate(row["locators"], 1):
             st.markdown(ui.quote_html(locator, i if many else None, translate.lookup(ko, locator["quote"])), unsafe_allow_html=True)
+            if context := ui.context_html(locator["quote"], _passage_text(project, row["source_id"], locator)):
+                st.markdown(context, unsafe_allow_html=True)
         translation.control(project, _foreign_texts(row), "ev_" + row["id"], "이 근거의 영문 한글 번역", compact=True, paste=False)
         if geometry := ui.geometry_note(row):
             st.warning(geometry, icon=":material/crop_rotate:")
@@ -367,11 +387,12 @@ def _detail(project, run_id, row, source, field_name, rows, pdf=False):
         st.caption(f"요청에 넣은 범위 · PDF {scope['from']}~{scope['to']}쪽 / 전체 {scope['total']}쪽"
                    + (". 범위 밖에 있을 수 있습니다 — 「1 · 조사 설계」에서 읽을 쪽수를 0(전체)으로 두고 다시 추출하면 확인됩니다."
                       if row["value"] is None and scope["to"] < scope["total"] else ""))
+        st.markdown('<div class="drk-hair"></div>', unsafe_allow_html=True)  # one hairline instead of a box in a box
         previous = row["review"]["status"] if row["review"]["status"] in REVIEW_CHOICES else None
         status = st.radio("이 값을", list(REVIEW_CHOICES), index=list(REVIEW_CHOICES).index(previous) if previous else None,
                           key="wb_decision_" + row["id"], format_func=REVIEW_CHOICES.get, horizontal=True,
                           help="채택 = 원문과 맞아 그대로 씀 · 수정 후 채택 = 고쳐 씀(원래 값 보존) · 보류 = 더 확인 · 제외 = 원문과 다르거나 쓸 수 없음")
-        with st.form("wb-review-" + row["id"]):
+        with st.form("wb-review-" + row["id"], border=False):
             checked = st.checkbox("원문의 앞뒤 문맥을 읽고 판단했습니다 (채택·수정 후 채택에 필수)")
             value = row["review"].get("edited_value") or row["value"] or ""
             if status == "edit":

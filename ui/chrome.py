@@ -299,6 +299,38 @@ def quote_html(locator, number=None, translated="") -> str:
     return out
 
 
+def context_html(quote: str, passage_text: str, reach: int = 160) -> str:
+    """The quote inside the words around it, from the indexed passage: enough to judge whether the
+    sentence before or after changes its meaning, without scrolling to the PDF. "" when the quote
+    cannot be placed in the passage text (then the PDF is the only context)."""
+    text = " ".join((passage_text or "").split())
+    span = _find_loosely(text, quote or "")
+    if span is None:
+        return ""
+    at, end = span
+    before, after = text[max(0, at - reach):at], text[end:end + reach]
+    if at > reach:
+        before = "…" + before.split(" ", 1)[-1]
+    if end + reach < len(text):
+        after = after.rsplit(" ", 1)[0] + "…"
+    if not before.strip() and not after.strip():
+        return ""
+    return (f'<div class="drk-context"><span class="k">앞뒤 문맥</span>{h(before)}'
+            f'<b>{h(text[at:end])}</b>{h(after)}</div>')
+
+
+def _find_loosely(text: str, quote: str):
+    """Where the quote sits in the text, comparing letters and digits only (case folded), so a
+    quote matched across a line-end hyphen or typographic quotes is still placed. (start, end)."""
+    keep = [(i, ch.casefold()) for i, ch in enumerate(text) if ch.isalnum()]
+    hay = "".join(ch for _, ch in keep)
+    needle = "".join(ch.casefold() for ch in quote if ch.isalnum())
+    at = hay.find(needle) if needle else -1
+    if at < 0:
+        return None
+    return keep[at][0], keep[at + len(needle) - 1][0] + 1
+
+
 def evidence_caption(locators, focus=0) -> str:
     """Says what the pane actually draws (see pdf_view): all located quotes, or only the picked one."""
     located = [loc for loc in locators if loc["boxes"]]

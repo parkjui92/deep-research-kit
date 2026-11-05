@@ -122,3 +122,30 @@ def test_candidates_without_pdf_are_collected_in_one_go(tmp_path, monkeypatch):
     assert not app.exception
     assert sorted(seen) == ["Candidate 0", "Candidate 1", "Candidate 2"]
     assert "3편 가운데 2편의 PDF를 등록했습니다" in app.session_state["flash"]
+
+
+def test_context_shows_the_words_around_a_quote_and_escapes_them():
+    from ui.chrome import context_html
+    passage = "Before this. " * 30 + "Completion took 19 percent longer <when> AI was allowed." + " After that." * 30
+    html = context_html("completion took 19 percent  longer <when> AI was allowed.", passage)
+    assert html.startswith('<div class="drk-context">') and "앞뒤 문맥" in html
+    assert "<b>Completion took 19 percent longer &lt;when&gt; AI was allowed</b>" in html  # bold ends at the last letter
+    assert "…" in html and len(html) < 700
+    assert context_html("not in the passage", passage) == ""
+    assert context_html("whole passage", "whole passage") == ""  # nothing around it to show
+
+
+def test_cell_colours_follow_the_design_rules():
+    from pathlib import Path
+    css = (Path(__file__).resolve().parents[1] / "assets" / "styles.css").read_text(encoding="utf-8")
+    rule = {k: next(line for line in css.splitlines() if f"st-key-tone-{k}-" in line and "background" in line) for k in ("stop", "wait", "edit")}
+    assert "#FEF2F2" not in rule["stop"] and "#7F1D1D" not in rule["stop"]  # red is for errors only
+    assert "#FFF7ED" in rule["wait"]  # hold is orange, like its badge
+    assert "#FEFCE8" not in rule["edit"]  # not the yellow of quotes and search marks
+
+
+def test_context_finds_a_quote_matched_across_a_line_end_hyphen():
+    from ui.chrome import context_html
+    passage = "We recruited 43 expert researchers to execute randomly-as- signed ideas, either written by experts. Then more."
+    html = context_html("43 expert researchers to execute randomly-assigned ideas,", passage)
+    assert "<b>43 expert researchers to execute randomly-as- signed ideas</b>, either" in html

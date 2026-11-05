@@ -161,8 +161,10 @@ def test_longer_value_shows_first_sentence_in_the_cell():
     from ui.workbench import _cell
     row = {"value": "완료 시간이 19.5% 늘었다. 표본은 16명이다. 효과는 과업마다 달랐다.", "match_status": "matched",
            "review": {"status": "pending"}}
-    assert _cell(row) == "○ 완료 시간이 19.5% 늘었다. 외 2문장"
-    assert _cell({**row, "value": "한 문장뿐인 값"}) == "○ 한 문장뿐인 값"
+    assert _cell(row) == "완료 시간이 19.5% 늘었다. 외 2문장\n\n○ 미검토"
+    assert _cell({**row, "value": "한 문장뿐인 값", "locators": [{"page": 12}]}) == "한 문장뿐인 값\n\n○ 미검토 · p.12"
+    assert _cell({**row, "match_status": "needs_check"}).endswith("? 위치 미확인")
+    assert _cell({**row, "review": {"status": "accept"}}).endswith("✓ 채택")
 
 
 def test_detail_shows_reference_translation_apart_from_the_quote(tmp_path):
