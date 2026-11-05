@@ -140,7 +140,9 @@ class Project:
     def lock(self):
         return self._lock
 
-    def initialize(self, title: str = "나의 문헌조사"):
+    def initialize(self, title: str = "나의 문헌조사", question: str | None = None):
+        if question is not None and not question.strip():
+            raise ValueError("조사 질문을 입력하세요.")
         self.root.mkdir(parents=True, exist_ok=True)
         with self.lock:
             if (self.root / "project.json").exists():
@@ -149,7 +151,11 @@ class Project:
                        "id": str(uuid.uuid4()), "title": title, "created_at": now()})
             write_json(self.root / "catalog.json", [])
             write_json(self.root / "search-log.json", [])
-            self.save_config(DEFAULT_PLAN, DEFAULT_FIELDS, DEFAULT_RULES)
+            plan = dict(DEFAULT_PLAN)
+            if question is not None:
+                plan.update(question=question.strip(), purpose="질문에 맞는 문헌과 인용 근거 정리",
+                            scope="", inclusion="", exclusion="")
+            self.save_config(plan, DEFAULT_FIELDS, DEFAULT_RULES)
         return self
 
     def config(self):
@@ -351,12 +357,27 @@ class Project:
 
     def remember_candidate(self, record):
         """Search candidates the person chose to keep, with or without a PDF (the PRISMA trail)."""
+        from .notebook import candidate_key
         with self.lock:
             items = self.collection()
-            key = record.get("doi") or record.get("title", "").strip().lower()
-            items = [i for i in items if (i.get("doi") or i.get("title", "").strip().lower()) != key]
-            items.append({**record, "at": now()})
+            key = candidate_key(record)
+            if key == "title:":
+                raise ValueError("후보 문헌의 제목이나 DOI가 필요합니다.")
+            old = next((i for i in items if candidate_key(i) == key), {})
+            merged = {**old, **{k: v for k, v in record.items() if v is not None and v != ""}}
+            # Re-saving a search result cannot turn an already acquired PDF back into a candidate.
+            if old.get("source_id") and not record.get("source_id"):
+                merged.update(source_id=old["source_id"], status=old.get("status", "added"))
+            if old.get("reading"):
+                merged["reading"] = old["reading"]
+            origins = list(old.get("discovered_in", []))
+            if record.get("search_query") and record["search_query"] not in origins:
+                origins.append(record["search_query"])
+            merged.update(discovered_in=origins, at=old.get("at") or now(), updated_at=now())
+            items = [i for i in items if candidate_key(i) != key]
+            items.append(merged)
             write_json(self.root / "collection.json", items)
+            return merged
 
     def set_bibliography(self, source_id, authors, year, venue):
         """Author·year·venue for citations. Stored on the catalog entry; never required."""

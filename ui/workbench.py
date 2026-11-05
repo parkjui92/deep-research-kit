@@ -28,6 +28,8 @@ from deep_research.project import (
 )
 
 from . import chrome as ui
+from . import reading, workspace
+from .research import FILTERS, filter_evidence, review_counts, search_view
 
 CELL_TONE = {"accept": "go", "edit": "edit", "hold": "wait", "reject": "stop", "pending": "todo"}
 
@@ -78,70 +80,202 @@ def _say(message):
 
 
 def workbench(project):
+    workspace.scope_session(project)
     runs = _answered_runs(project)
     all_runs = project.runs()
     for key in ("wb_run", "wb_pending_run", "wb_resp_run"):
         if st.session_state.get(key) and st.session_state[key] not in all_runs:
             st.session_state.pop(key, None)
-    if st.session_state.pop("wb_scroll_top", False) or not st.session_state.get("wb_seen"):
-        st.session_state["wb_seen"] = True
-        ui.scroll_top()
     sources = project.catalog()
     included = [s for s in sources if s["decision"] == "include"]
     config = project.config()
-    _action_bar(project, runs, included, config)
-    if note := no_text_note([s for s in sources if s["decision"] != "exclude"]):
-        st.warning(note, icon=":material/scanner:")
-    search_results_panel(project)
-    missing_pdfs_panel(project)
+    if target_run := st.session_state.pop("wb_route_run", None):
+        if target_run in runs:
+            st.session_state["wb_run"] = target_run
+    if st.session_state.pop("wb_clear_reply", False):
+        st.session_state.pop("wb_pack_reply", None)
+    if route := st.session_state.pop("wb_route", None):
+        st.session_state["wb_view"] = route
+    legacy = {"비교·검토": "근거 비교", "문헌 탐색": "문헌 모으기", "연구 결과": "보고서에 쓰기"}
+    if st.session_state.get("wb_view") in legacy:
+        st.session_state["wb_view"] = legacy[st.session_state["wb_view"]]
+    if destination := st.session_state.pop("start_destination", None):
+        st.session_state["wb_view"] = "문헌 모으기"
+        st.session_state["wb_library_route"] = destination
+        st.session_state["wb_q"] = config["plan"]["question"]
+    st.session_state.setdefault("wb_view", workspace.VIEWS[0] if runs else workspace.VIEWS[1])
+    st.markdown(f'<div class="drk-work-question">{ui.h(config["plan"]["question"])}</div>', unsafe_allow_html=True)
+    nav, settings = st.columns([4, 1])
+    view = nav.segmented_control("작업 공간", [workspace.VIEWS[1], workspace.VIEWS[0], workspace.VIEWS[2]], key="wb_view", width="stretch",
+                                 label_visibility="collapsed") or workspace.VIEWS[0]
+    with settings, st.popover("조사 설정", icon=":material/tune:", width="stretch"):
+        workspace.question_panel(project, config, compact=True)
+        with st.expander("비교 항목 추가·편집"):
+            _fields_popover(project, config)
+        if runs:
+            if st.session_state.get("wb_run") not in runs:
+                st.session_state["wb_run"] = runs[0]
+            st.selectbox("이전 추출 결과", runs, key="wb_run",
+                         format_func=lambda r: ui.local_time(flow.manifest(project, r)["created_at"]) + " · " + r[-6:])
+        st.button("단계별 보기", icon=":material/school:", on_click=open_steps)
+    if view == workspace.VIEWS[1]:
+        if path := st.session_state.pop("wb_library_route", None):
+            st.session_state["wb_library_view"] = path
+        section = st.segmented_control("문헌 작업", ["문헌 검색", "읽기 후보", "내 PDF", "원문 검색·노트"],
+                                       key="wb_library_view", default="문헌 검색", width="stretch") or "문헌 검색"
+        if section == "문헌 검색":
+            if not runs:
+                _question_notice(project, config, "wb_question_go_empty")
+            st.subheader("질문에서 시작하는 문헌 탐색")
+            with st.container(border=True, key="drk-search"):
+                _search_popover(project)
+            search_results_panel(project)
+            workspace.search_history(project)
+        elif section == "읽기 후보":
+            reading.candidate_queue(project)
+        elif section == "원문 검색·노트":
+            reading.reading_room(project)
+        else:
+            a, b = st.columns(2)
+            with a, st.popover("PDF·서지 가져오기", icon=":material/upload_file:", width="stretch"):
+                _import_popover(project)
+            with b, st.popover("AI로 비교표 만들기", icon=":material/auto_awesome:", width="stretch"):
+                _extract_popover(project, runs, included, config)
+            missing_pdfs_panel(project)
+            if note := no_text_note([s for s in sources if s["decision"] != "exclude"]):
+                st.warning(note, icon=":material/scanner:")
+            workspace.library(project)
+        return
+    if view == workspace.VIEWS[2]:
+        section = st.segmented_control("결과 종류", ["독서 노트·자료", "AI 근거 결과"],
+                                       default="AI 근거 결과" if runs else "독서 노트·자료", key="wb_output_kind")
+        if section == "AI 근거 결과" and runs:
+            run_id = st.session_state.get("wb_run", runs[0])
+            workspace.results_panel(project, run_id, lambda: _export_popover(project, runs),
+                                    lambda: _synthesis_controls(project, run_id))
+        elif section == "AI 근거 결과":
+            st.info("아직 추출한 비교표가 없습니다. 독서 노트와 자료는 AI 없이도 내보낼 수 있습니다.")
+        else:
+            reading.notes_panel(project)
+            reading.materials_export(project)
+        return
+    with st.expander("비교표 새로 만들기 · AI 연결·실행 범위"):
+        _extract_popover(project, runs, included, config)
     if not runs:
         _onboarding(project, sources, included)
         return
-    if st.session_state.get("wb_run") not in runs:
-        st.session_state["wb_run"] = runs[0]
-    run_id = st.session_state["wb_run"]
+    _comparison(project, st.session_state.get("wb_run", runs[0]), included, config)
+
+
+def _comparison(project, run_id, included, config):
     run = flow.manifest(project, run_id)
     rows = flow.evidence(project, run_id)
     run_fields = run["config"]["fields"]
     run_field_ids = {f["id"] for f in run_fields}
-    # Columns = items in the current design; items added after this run show as "AI 추출 대기".
-    fields = run_fields + [f for f in config["fields"] if f["id"] not in run_field_ids]
+    all_fields = run_fields + [f for f in config["fields"] if f["id"] not in run_field_ids]
     run_source_ids = {s["id"] for s in run["sources"]}
     new_sources = [s for s in included if s["id"] not in run_source_ids]
-    waiting = [c for c in project.collection() if c.get("status") == "pdf_missing"]
     by_key = {(r["source_id"], r["field_id"]): r for r in rows}
-    kept = sum(r["review"]["status"] in {"accept", "edit"} for r in rows)
-    pending = sum(r["review"]["status"] == "pending" for r in rows)
-    missing = sum(r["value"] is None for r in rows)
-    chips = [("문헌", f"{len(run['sources']) + len(new_sources)}편" + (f" · PDF 없음 {len(waiting)}" if waiting else "")),
-             ("항목", f"{len(fields)}개" + (f" · 추출 대기 {len(fields) - len(run_fields)}" if len(fields) > len(run_fields) else "")),
-             ("채택", f"{kept}/{len(rows)}"), ("미검토", pending), ("못 찾음", missing)]
-    if new_sources or len(fields) > len(run_fields):
-        st.info(f"새로 더한 문헌 {len(new_sources)}편 · 항목 {len(fields) - len(run_fields)}개는 아직 AI가 읽지 않았습니다. 「AI로 추출」을 다시 실행하면 채워집니다(이전 실행과 검토 기록은 보존).", icon=":material/info:")
-    chips_html = "".join(f'<span class="drk-chip"><span class="k">{ui.h(k)}</span><span class="v">{ui.h(v)}</span></span>' for k, v in chips)
-    top_l, top_r = st.columns([3, 1.4])
-    top_l.markdown('<div class="drk-chips">' + chips_html + "</div>", unsafe_allow_html=True)
-    if len(runs) > 1:
-        top_r.selectbox("실행", runs, key="wb_run", format_func=lambda r: ui.local_time(flow.manifest(project, r)["created_at"]) + " · " + r[-6:],
-                        label_visibility="collapsed")
-    # ---- comparison table (row = document, column = item). Each cell is a button: one click
-    # opens the value next to its source. (st.dataframe can select rows or columns, not a cell.)
-    ids = [r["id"] for r in rows]
+    counts = review_counts(rows)
+    if not rows:
+        ui.empty("이 실행에는 추출값이 없습니다.", "「AI로 추출」에서 응답을 가져오세요.")
+        return
+    st.markdown('<div class="drk-section-title">문헌 비교표 <span>값을 선택해 원문을 확인하세요</span></div>', unsafe_allow_html=True)
+    summary, progress = st.columns([2, 1])
+    summary.caption(f"문헌 {len(run['sources'])}편 · 항목 {len(run_fields)}개 · 채택 {counts['kept']} · 미검토 {counts['pending']} · 보류 {counts['held']}")
+    progress.progress(counts["resolved"] / counts["total"], text=f"검토 확정 {counts['resolved']}/{counts['total']} · 보류 제외")
+    if run["config"] != config or new_sources:
+        st.caption("ⓘ 조사 설계 또는 문헌 구성이 바뀌었습니다. 현재 표에는 선택한 실행의 기준이 적용됩니다."
+                   + (f" 새 문헌 {len(new_sources)}편 · 새 항목 {len(all_fields) - len(run_fields)}개는 추출 대기 중입니다."
+                      if new_sources or len(all_fields) > len(run_fields) else ""))
+        if run["config"]["plan"]["question"] != config["plan"]["question"]:
+            st.caption("이 실행의 질문 · " + ui.md(run["config"]["plan"]["question"]))
+    with st.expander("검색·검토 상태·표시 항목"):
+        a, b, c = st.columns([2, 1, 1.2])
+        query = a.text_input("비교표 검색", placeholder="제목·저자·추출값·원문 구절", key="wb_find")
+        status = b.selectbox("검토 상태", FILTERS, key="wb_filter")
+        st.session_state.setdefault("wb_layout", "비교표")
+        layout = c.segmented_control("검토 방식", ["비교표", "집중 검토"], key="wb_layout") or "비교표"
+        field_ids = [f["id"] for f in all_fields]
+        if "wb_columns" in st.session_state:
+            valid_columns = [f for f in st.session_state["wb_columns"] if f in field_ids]
+            if valid_columns != st.session_state["wb_columns"]:
+                st.session_state["wb_columns"] = valid_columns
+        else:
+            st.session_state["wb_columns"] = [f for f in field_ids if f in {"finding", "limitations"}] or field_ids[:2]
+        with st.expander("표시 항목 선택", icon=":material/view_column:"):
+            selected_fields = st.multiselect("비교할 항목 (한 번에 최대 6개)", field_ids,
+                                             max_selections=6, key="wb_columns",
+                                             format_func=lambda fid: next(f["name"] for f in all_fields if f["id"] == fid))
+    fields = [f for f in all_fields if f["id"] in selected_fields]
+    sources = [project.with_bib(s) for s in run["sources"]]
+    visible = filter_evidence(rows, sources, query, status, set(selected_fields))
+    ids = [r["id"] for r in visible]
+    if not ids:
+        ui.empty("조건에 맞는 추출값이 없습니다.", "검색어·검토 상태·표시 항목을 바꾸거나 필터를 초기화하세요.")
+        st.button("필터 초기화", key="wb_reset", on_click=_reset_filters)
+        return
     if (jump := st.session_state.pop("wb_next", None)) in ids:
         st.session_state["wb_pick"] = jump
     if st.session_state.get("wb_pick") not in ids:
-        st.session_state["wb_pick"] = next((r["id"] for r in rows if r["review"]["status"] == "pending"), ids[0] if ids else None)
-    if not ids:
-        ui.empty("이 실행에는 추출값이 없습니다.", "「AI로 추출」을 다시 실행하세요.")
-        return
-    st.caption("비교표 · " + LEGEND + " · 칸을 누르면 아래에 원문과 수정란이 열립니다")
+        st.session_state["wb_pick"] = next((r["id"] for r in visible if r["review"]["status"] == "pending"), ids[0])
+    visible_ids = set(ids)
+    matched_sources = {r["source_id"] for r in visible}
+    shown_sources = [s for s in sources if s["id"] in matched_sources]
+    st.caption(f"조건에 맞는 문헌 {len(shown_sources)}편 · 근거 {len(visible)}건 / 전체 {len(rows)}건")
+    with st.container(key="drk-comparison-workspace"):
+        if layout == "비교표":
+            table, detail = st.columns([1.15, 1], gap="large")
+            with table:
+                pages = max(1, (len(shown_sources) + 7) // 8)
+                if st.session_state.get("wb_table_page", 1) > pages:
+                    st.session_state["wb_table_page"] = 1
+                if pages > 1:
+                    page = st.selectbox("비교표 페이지 · 8편씩", list(range(1, pages + 1)), key="wb_table_page")
+                    shown_sources = shown_sources[(page - 1) * 8:page * 8]
+                _comparison_grid(project, shown_sources, fields, by_key, visible_ids,
+                                 new_sources if not query and status == "전체" else [])
+                st.caption("셀 선택 → 옆에서 원문 확인 · ○ 미검토 · ✓ 채택 · ✎ 수정 · ⏸ 보류")
+            with detail:
+                row = next(r for r in visible if r["id"] == st.session_state["wb_pick"])
+                source = next(s for s in run["sources"] if s["id"] == row["source_id"])
+                field = next(f["name"] for f in fields if f["id"] == row["field_id"])
+                st.button("PDF와 나란히 크게 검토", key="wb_focus", on_click=_focus)
+                _detail(project, run_id, row, source, field, visible)
+                with st.expander("원문 PDF 펼치기"):
+                    _evidence_pdf(project, row)
+        else:
+            index = ids.index(st.session_state["wb_pick"])
+            a, b, c = st.columns([1, 3, 1])
+            a.button("← 이전 근거", disabled=index == 0, key="wb_prev", on_click=_pick, args=(ids[max(0, index - 1)],))
+            b.caption(f"원문 근거 {index + 1} / {len(ids)} · 위치 확인과 사람의 판단은 별도입니다.")
+            c.button("다음 근거 →", disabled=index == len(ids) - 1, key="wb_forward", on_click=_pick, args=(ids[min(len(ids) - 1, index + 1)],))
+            with st.container(key="drk-inspector"):
+                _inspector(project, run_id, run, visible, fields)
+
+
+def _focus():
+    st.session_state["wb_layout"] = "집중 검토"
+
+
+def _pick(evidence_id):
+    st.session_state["wb_pick"] = evidence_id
+
+
+def _reset_filters():
+    st.session_state["wb_find"] = ""
+    st.session_state["wb_filter"] = "전체"
+    st.session_state.pop("wb_columns", None)
+
+
+def _comparison_grid(project, shown_sources, fields, by_key, visible_ids, new_sources):
     widths = [1.3] + [1.0] * len(fields)
-    with st.container(key="drk-grid"):
+    with st.container(key="drk-grid", height=360 if len(shown_sources) > 3 else "content"):
         head = st.columns(widths, gap="small")
         head[0].markdown('<div class="drk-th">문헌</div>', unsafe_allow_html=True)
         for col, field in zip(head[1:], fields):
             col.markdown(f'<div class="drk-th" title="{ui.h(field["instruction"])}">{ui.h(field["name"])}</div>', unsafe_allow_html=True)
-        for source in run["sources"]:
+        for source in shown_sources:
             cols = st.columns(widths, gap="small")
             bib = project.with_bib(source).get("bib") or {}
             meta = " · ".join(x for x in (ui.short(", ".join(bib.get("authors", [])[:2]), 30), str(bib.get("year") or "")) if x)
@@ -154,23 +288,18 @@ def workbench(project):
                 selected = cell["id"] == st.session_state["wb_pick"]
                 tone = "none" if cell["value"] is None else CELL_TONE.get(cell["review"]["status"], "todo")
                 with col.container(key=f"tone-{tone}-{cell['id']}"):
-                    if st.button(ui.md(_cell(cell) or "—"), key="cell-" + cell["id"], width="stretch", type="primary" if selected else "secondary",
+                    if st.button(ui.md(_cell(cell) or "—"), key="cell-" + cell["id"], width="stretch", type="primary" if selected else "secondary", disabled=cell["id"] not in visible_ids,
                                  help=ui.md(cell["value"] or "읽은 범위에서 찾지 못함") + f"\n\n검토: {ui.word(ui.REVIEW, cell['review']['status'])}"):
                         st.session_state["wb_pick"] = cell["id"]
-                        st.session_state["wb_scroll_top"] = True
                         st.rerun()
         for source in new_sources:
             cols = st.columns(widths, gap="small")
             cols[0].markdown(f'<div class="drk-td-title" title="{ui.h(source["title"])}">{ui.h(ui.short(source["title"], 56))}<span>새 문헌 · 포함</span></div>', unsafe_allow_html=True)
             for col in cols[1:]:
                 col.markdown('<div class="drk-td-empty">AI 추출 대기</div>', unsafe_allow_html=True)
-        for cand in waiting:
-            cols = st.columns(widths, gap="small")
-            link = ui.safe_url(cand.get("url") or ("https://doi.org/" + cand["doi"] if cand.get("doi") else ""))
-            anchor = f'<a href="{ui.h(link)}" target="_blank">원문 링크</a> → ' if link else ""
-            cols[0].markdown(f'<div class="drk-td-title">{ui.h(ui.short(cand["title"], 56))}<span>PDF 없음 · {anchor}내려받으면 위 「다운로드 폴더 지켜보기」가 묶습니다</span></div>', unsafe_allow_html=True)
-            for col in cols[1:]:
-                col.markdown('<div class="drk-td-empty">—</div>', unsafe_allow_html=True)
+
+
+def _inspector(project, run_id, run, rows, fields):
     row = next(r for r in rows if r["id"] == st.session_state["wb_pick"])
     source = project.with_bib(next(s for s in run["sources"] if s["id"] == row["source_id"]))
     field_name = next(f["name"] for f in fields if f["id"] == row["field_id"])
@@ -178,15 +307,19 @@ def workbench(project):
     with left:
         _detail(project, run_id, row, source, field_name, rows)
     with right:
-        if row["locators"]:
-            pick = st.selectbox("보러 갈 발췌", range(len(row["locators"])), format_func=lambda i: f"발췌 {i + 1} · PDF {row['locators'][i]['page']}쪽",
-                                key="wb_loc_" + row["id"]) if len(row["locators"]) > 1 else 0
-            locator = row["locators"][pick]
-            ui.show_pdf(project, row["source_id"], row["locators"], page=locator["page"] or 1, identity="wb-" + row["id"], focus=pick,
-                        caption="이 쪽은 강조 위치를 그릴 수 없습니다(회전·잘린 쪽). 원문을 직접 보며 확인하세요."
-                        if locator["status"] == "unsupported_page_geometry" else ui.evidence_caption(row["locators"], pick))
-        else:
-            ui.show_pdf(project, row["source_id"], identity="wb-" + row["id"], caption="이 항목은 읽은 범위에서 찾지 못했습니다. 원문을 넘기며 직접 확인하세요.")
+        _evidence_pdf(project, row)
+
+
+def _evidence_pdf(project, row):
+    if row["locators"]:
+        pick = st.selectbox("보러 갈 발췌", range(len(row["locators"])), format_func=lambda i: f"발췌 {i + 1} · PDF {row['locators'][i]['page']}쪽",
+                            key="wb_loc_" + row["id"]) if len(row["locators"]) > 1 else 0
+        locator = row["locators"][pick]
+        ui.show_pdf(project, row["source_id"], row["locators"], page=locator["page"] or 1, identity="wb-" + row["id"], focus=pick,
+                    caption="이 쪽은 강조 위치를 그릴 수 없습니다(회전·잘린 쪽). 원문을 직접 보며 확인하세요."
+                    if locator["status"] == "unsupported_page_geometry" else ui.evidence_caption(row["locators"], pick))
+    else:
+        ui.show_pdf(project, row["source_id"], identity="wb-" + row["id"], caption="이 항목은 읽은 범위에서 찾지 못했습니다. 원문을 넘기며 직접 확인하세요.")
 
 
 def _detail(project, run_id, row, source, field_name, rows):
@@ -197,7 +330,10 @@ def _detail(project, run_id, row, source, field_name, rows):
         with b:
             ui.badge(ui.REVIEW, row["review"]["status"])
         st.markdown(f"**{ui.md(field_name)}** · {ui.md(ui.short(source['title'], 60))}")
-        st.markdown(f'<div class="drk-value">{ui.h(row["value"] or "읽은 범위에서 찾지 못함")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="drk-value">{ui.h(display_value(row) or "읽은 범위에서 찾지 못함")}</div>', unsafe_allow_html=True)
+        if row["review"]["status"] == "edit":
+            with st.expander("수정 전 AI 추출값"):
+                st.markdown(ui.md(row["value"]))
         many = len(row["locators"]) > 1
         for i, locator in enumerate(row["locators"], 1):
             st.markdown(ui.quote_html(locator, i if many else None), unsafe_allow_html=True)
@@ -210,16 +346,16 @@ def _detail(project, run_id, row, source, field_name, rows):
         st.caption(f"요청에 넣은 범위 · PDF {scope['from']}~{scope['to']}쪽 / 전체 {scope['total']}쪽"
                    + (". 범위 밖에 있을 수 있습니다 — 「1 · 조사 설계」에서 읽을 쪽수를 0(전체)으로 두고 다시 추출하면 확인됩니다."
                       if row["value"] is None and scope["to"] < scope["total"] else ""))
+        previous = row["review"]["status"] if row["review"]["status"] in REVIEW_CHOICES else None
+        status = st.radio("이 값을", list(REVIEW_CHOICES), index=list(REVIEW_CHOICES).index(previous) if previous else None,
+                          key="wb_decision_" + row["id"], format_func=REVIEW_CHOICES.get, horizontal=True,
+                          help="채택 = 원문과 맞아 그대로 씀 · 수정 후 채택 = 고쳐 씀(원래 값 보존) · 보류 = 더 확인 · 제외 = 원문과 다르거나 쓸 수 없음")
         with st.form("wb-review-" + row["id"]):
-            previous = row["review"]["status"] if row["review"]["status"] in REVIEW_CHOICES else None
-            status = st.radio("이 값을", list(REVIEW_CHOICES), index=list(REVIEW_CHOICES).index(previous) if previous else None,
-                              format_func=REVIEW_CHOICES.get, horizontal=True,
-                              help="채택 = 원문과 맞아 그대로 씀 · 수정 후 채택 = 고쳐 씀(원래 값 보존) · 보류 = 더 확인 · 제외 = 원문과 다르거나 쓸 수 없음")
-            st.caption(REVIEW_GUIDE)
             checked = st.checkbox("원문의 앞뒤 문맥을 읽고 판단했습니다 (채택·수정 후 채택에 필수)")
-            value = st.text_area("수정한 값 (수정 후 채택일 때)", row["review"].get("edited_value") or row["value"] or "", height=70,
-                                 help="AI 값이 채워져 있습니다. 원문 기준으로 고쳤다면 판정을 「수정 후 채택」으로 고르세요. "
-                                      "예: 원문은 16명인데 추출값이 26명이어서 16명으로 고침. 「채택」은 AI 값을 그대로 씁니다.")
+            value = row["review"].get("edited_value") or row["value"] or ""
+            if status == "edit":
+                value = st.text_area("수정한 값 (수정 후 채택일 때)", value, height=90,
+                                     help="원문에 맞게 고칩니다. AI의 원래 추출값도 보존됩니다.")
             note = st.text_input("이유 한 줄 (필수)", row["review"].get("note", ""),
                                  placeholder="예: 8쪽 발췌와 수치 일치, 앞뒤 문맥상 조건 누락 없음 / 단위가 빠져 보완",
                                  help="무엇과 대조했는지(쪽·표·문장)와 판단을 짧게 적습니다. 이 이유가 보고서·CSV의 근거 기록에 남습니다.")
@@ -247,7 +383,6 @@ def _detail(project, run_id, row, source, field_name, rows):
                         project.remember_reviewer(reviewer)
                         after = [r["id"] for r in rows if r["review"]["status"] == "pending" and r["id"] != row["id"]]
                         st.session_state["wb_next"] = after[0] if after else row["id"]
-                        st.session_state["wb_scroll_top"] = True
                         _say(f"저장했습니다 · {ui.md(field_name)} → {REVIEW_CHOICES[status]}" + ("" if after else " · 미검토가 없습니다. 내보내기로 가세요."))
                         st.rerun()
         with st.expander("인용 문장 복사", icon=":material/format_quote:"):
@@ -258,12 +393,13 @@ def _detail(project, run_id, row, source, field_name, rows):
 def _onboarding(project, sources, included):
     _question_notice(project, project.config(), "wb_question_go_empty")
     with st.container(border=True):
-        st.markdown("**비교표가 아직 없습니다.** 순서대로 하면 몇 분 안에 첫 표가 나옵니다.")
+        st.markdown("**비교표를 만들 준비를 해 주세요.** AI 추출 결과는 원문과 대조한 뒤 채택합니다.")
         st.caption(OUTPUTS)
         c1, c2, c3 = st.columns(3)
-        c1.markdown(f"**① 문헌 모으기**  \n위 「문헌 찾기」에서 검색해 담거나 「PDF 가져오기」로 올립니다.  \n지금 {len(sources)}편")
-        c2.markdown(f"**② 쓸 논문 고르기**  \n문헌마다 포함·제외를 정합니다(「단계별 보기 → 2 · 문헌 선별」).  \n지금 포함 {len(included)}편")
-        c3.markdown("**③ AI로 추출**  \n위 「AI로 추출」. Claude Code가 있으면 바로, 없으면 요청문 복사 또는 예제 응답.")
+        c1.markdown(f"**① 문헌 모으기**  \n검색에서 후보를 담거나 「내 PDF」에서 파일을 가져옵니다.  \n지금 {len(sources)}편")
+        c2.markdown(f"**② 쓸 문헌 고르기**  \n「문헌 모으기 → 내 PDF」에서 포함·제외와 이유를 정합니다.  \n지금 포함 {len(included)}편")
+        c3.markdown("**③ 비교표 만들기**  \n위 AI 연결에서 실행 방법과 읽을 범위를 확인하세요.")
+        st.caption("AI를 연결하지 않아도 ‘원문 검색·노트’에서 읽고, ‘보고서에 쓰기’에서 발췌·서지·검색 이력을 내려받을 수 있습니다.")
         if sources and not included:
             if st.button("등록한 문헌을 모두 포함으로 두고 시작 (나중에 바꿀 수 있음)"):
                 readable = [s for s in sources if s["decision"] == "pending" and not has_no_text(s)]
@@ -279,20 +415,16 @@ def _onboarding(project, sources, included):
 # Action bar: everything that is not the table lives behind one of these buttons.
 # ---------------------------------------------------------------------------
 def _action_bar(project, runs, included, config):
-    c1, c2, c3, c4, c5, c6 = st.columns([1, 1, 1, 1.1, 1, 1])
-    with c1, st.popover("문헌 찾기", icon=":material/search:", width="stretch"):
-        _search_popover(project)
-    with c2, st.popover("PDF 가져오기", icon=":material/upload_file:", width="stretch"):
+    c1, c2, c3, c4 = st.columns([1, 1, 1.2, 1])
+    with c1, st.popover("PDF 가져오기", icon=":material/upload_file:", width="stretch"):
         _import_popover(project)
-    with c3, st.popover("항목 추가", icon=":material/view_column:", width="stretch"):
+    with c2, st.popover("항목 추가·편집", icon=":material/view_column:", width="stretch"):
         _fields_popover(project, config)
-    with c4, st.popover("AI로 추출", icon=":material/auto_awesome:", width="stretch"):
+    with c3, st.popover("AI로 추출", icon=":material/auto_awesome:", width="stretch"):
         _extract_popover(project, runs, included, config)
-    with c5, st.popover("내보내기", icon=":material/download:", width="stretch"):
-        _export_popover(project, runs)
-    with c6:
-        st.button("단계별 보기", icon=":material/school:", width="stretch", help="조사 설계·선별·검토를 한 단계씩 따라가는 학습 모드",
-                  on_click=open_steps)
+    with c4:
+        st.button("단계별 보기", icon=":material/school:", width="stretch",
+                  help="조사 설계·선별·검토를 한 단계씩 따라가는 학습 모드", on_click=open_steps)
 
 
 def open_steps(stage=None):
@@ -314,64 +446,81 @@ def _example_question(project, config):
 def _question_notice(project, config, key):
     if not _example_question(project, config):
         return
-    st.warning(f"조사 질문이 아직 예시 그대로입니다: 「{ui.md(config['plan']['question'])}」. AI는 이 질문과 항목 지침에 맞춰 값을 고릅니다. "
-               "내 질문으로 바꾸면 추출도 그 질문에 맞춰집니다.", icon=":material/edit_note:")
-    st.button("조사 질문 바꾸러 가기 · 1 · 조사 설계", key=key, on_click=open_steps, args=(ui.STAGES[0],))
+    st.warning("조사 질문이 아직 예시 그대로입니다. 「조사 설정 → 질문·선별 기준 편집」에서 내 질문을 먼저 적어 주세요.", icon=":material/edit_note:")
 
 
 def _search_popover(project):
     from deep_research.providers import search_literature
-    st.markdown("**무료 색인에서 찾아 담기** — OpenAlex(전 분야)·arXiv·Crossref")
-    query = st.text_input("검색어", key="wb_q", placeholder="예: generative AI knowledge work productivity experiment")
-    providers = st.multiselect("어디서", ["OpenAlex", "arXiv", "Crossref"], default=["OpenAlex"], key="wb_prov")
-    a, b = st.columns(2)
-    year_from = a.number_input("발행연도 이후 (0=전체)", 0, 2100, 0, key="wb_year")
-    limit = b.number_input("최대 건수", 5, 50, 20, key="wb_limit")
-    if st.button("검색", disabled=not query.strip(), key="wb_search_btn"):
-        try:
-            # The year goes to the search servers and the search log lists exactly what is shown.
-            st.session_state["wb_results"] = search_literature(project, query, providers or ["OpenAlex"], limit, year_from or None)
-        except ValueError as exc:
-            st.error(str(exc))
-    results = st.session_state.get("wb_results") or []
-    if results:
-        st.caption(f"{len(results)}건을 찾았습니다. 팝업을 닫으면 본문에 넓은 표로 보이며 거기서 담습니다.")
-    return
+    st.caption("학술 자료원에 검색어를 보냅니다. 내 PDF·노트는 전송하지 않습니다.")
+    with st.form("wb_search_form"):
+        query = st.text_input("검색어", key="wb_q", placeholder="연구 주제를 입력하세요 · 예: generative AI knowledge work productivity")
+        a, b, c = st.columns([2, 1, 1])
+        providers = a.multiselect("학술 자료원", ["OpenAlex", "arXiv", "Crossref"], default=["OpenAlex"], key="wb_prov")
+        year_from = b.number_input("발행연도 이후 (0=전체)", 0, 2100, 0, key="wb_year")
+        limit = c.number_input("자료원별 최대 건수", 5, 50, 20, key="wb_limit")
+        if st.form_submit_button("문헌 검색", type="primary", icon=":material/search:"):
+            st.session_state.pop("wb_results", None)
+            st.session_state.pop("wb_results_query", None)
+            try:
+                with st.spinner("학술 자료원을 검색하고 중복 문헌을 합치는 중"):
+                    results = search_literature(project, query, providers or ["OpenAlex"], limit, year_from or None)
+                st.session_state["wb_results"] = results
+                st.session_state["wb_results_query"] = query
+                for key in ("wb_results_editor", "wb_result_pick", "wb_result_find", "wb_result_oa", "wb_result_order"):
+                    st.session_state.pop(key, None)
+                if not results:
+                    st.info("검색 결과가 없습니다. 검색어를 줄이거나 연도 범위를 넓혀 보세요.")
+                log = read_json(project.root / "search-log.json")[-1]
+                if log.get("errors"):
+                    st.warning("일부 자료원에 연결하지 못했습니다: " + ", ".join(log["errors"]) + ". 나머지 결과를 표시합니다.")
+            except ValueError as exc:
+                st.error(str(exc))
+    st.caption("OpenAlex · arXiv · Crossref에서 검색합니다. 관련도순은 각 자료원이 반환한 순서이며 자료원 간 통합 점수가 아닙니다.")
 
 
 def search_results_panel(project):
-    """Search hits are shown in the main column (a popover is too narrow for title·venue·year·OA)."""
-    from deep_research.providers import collect
     results = st.session_state.get("wb_results") or []
     if not results:
         return
     with st.container(border=True):
-        head, close = st.columns([5, 1.4])
-        head.markdown(f"**검색 결과 {len(results)}건** — 담을 문헌에 표시하고 「담기」. 오픈액세스(OA)는 PDF가 바로 등록됩니다.")
-        if close.button("닫기", key="wb_results_close", icon=":material/close:", width="stretch"):
-            st.session_state["wb_results"] = []
+        st.markdown(f"**검색 결과 {len(results)}건** · {ui.md(st.session_state.get('wb_results_query', ''))}")
+        a, b, c = st.columns([2, 1, 1])
+        query = a.text_input("결과 내 검색", placeholder="제목·저자·초록·DOI", key="wb_result_find")
+        order = b.selectbox("정렬", ["관련도순", "최신순", "피인용순"], key="wb_result_order")
+        oa = c.checkbox("오픈액세스만", key="wb_result_oa")
+        visible = search_view(results, query, oa, order)
+        st.caption(f"{len(visible)} / {len(results)}건 표시 · OA 표시는 공개 이용 가능 메타데이터이며 PDF 확보를 보장하지 않습니다.")
+        if not visible:
+            st.info("조건에 맞는 결과가 없습니다. 결과 내 검색어나 OA 필터를 바꿔 보세요.")
+            return
+        # A new key for every ordered set prevents checkboxes moving to a different paper.
+        signature = flow.fingerprint(visible)[:12]
+        records = [{"담기": False, "제목": r["title"], "저자": ", ".join(r.get("authors", [])[:3]),
+                    "연도": r.get("year"), "학술지": r.get("venue", ""), "피인용": r.get("cited_by"),
+                    "공개 원문": "OA" if r.get("pdf_url") or r.get("oa") else "확인 필요",
+                    "자료원": ", ".join(r.get("providers", []))} for r in visible]
+        edited = st.data_editor(records, hide_index=True, width="stretch", key="wb_results_editor_" + signature,
+                                disabled=[k for k in records[0] if k != "담기"], height=min(80 + 36 * len(visible), 420),
+                                column_config={"담기": st.column_config.CheckboxColumn(width="small"),
+                                               "제목": st.column_config.TextColumn(width="large")})
+        chosen = [visible[i] for i, r in enumerate(edited) if r.get("담기")]
+        if st.button(f"선택한 {len(chosen)}건 후보함에 담기", disabled=not chosen, key="wb_collect", type="primary", icon=":material/library_add:"):
+            for cand in chosen:
+                project.remember_candidate({**cand, "status": "saved",
+                                            "search_query": st.session_state.get("wb_results_query", "")})
+            st.session_state["wb_library_route"] = "읽기 후보"
+            _say(f"후보 {len(chosen)}편을 저장했습니다. 읽을 이유를 적고 필요한 PDF만 가져오세요.")
             st.rerun()
-        edited = st.data_editor([{"담기": False, "제목": r["title"], "저자": ", ".join(r["authors"][:3]) + (" 외" if len(r["authors"]) > 3 else ""),
-                                  "연도": r.get("year"), "학술지": r.get("venue", ""), "피인용": r.get("cited_by"), "PDF": "OA" if r.get("pdf_url") or r.get("oa") else "",
-                                  "DOI": r.get("doi", "")} for r in results],
-                                hide_index=True, width="stretch", key="wb_results_editor", disabled=["제목", "저자", "연도", "학술지", "피인용", "PDF", "DOI"],
-                                height=min(80 + 36 * len(results), 520),
-                                column_config={"담기": st.column_config.CheckboxColumn(width="small", help="칸을 한 번 눌러 표시(두 번 보이면 한 번 더)"),
-                                               "제목": st.column_config.TextColumn(width="large"), "DOI": st.column_config.TextColumn(width="small")})
-        chosen = [results[i] for i, r in enumerate(edited) if r.get("담기")]
-        if st.button(f"선택한 {len(chosen)}건 담기 · 오픈액세스 PDF는 바로 등록", disabled=not chosen, key="wb_collect", type="primary"):
-            added, missing = [], []
-            with st.spinner("PDF를 받아 색인하는 중"):
-                for cand in chosen:
-                    record = collect(project, cand)
-                    (added if record["status"] == "added" else missing).append(record)
-            msg = f"PDF 등록 {len(added)}건"
-            if missing:
-                msg += f" · 서지만 담김 {len(missing)}건 — 비교표 아래 'PDF 없음' 줄의 원문 링크로 직접 받아 「PDF 가져오기」에 올리세요"
-            _say(msg)
-            st.session_state["wb_results"] = []
-            st.rerun()
-
+        with st.expander("초록·출처 미리보기", expanded=True):
+            pick = st.selectbox("살펴볼 문헌", range(len(visible)), key="wb_result_pick_" + signature,
+                                format_func=lambda i: visible[i]["title"])
+            cand = visible[pick]
+            st.markdown(ui.md(cand.get("abstract") or "이 자료원에서 초록을 제공하지 않았습니다. 원문 링크에서 확인하세요."))
+            link = ui.safe_url(cand.get("url") or ("https://doi.org/" + cand["doi"] if cand.get("doi") else ""))
+            if link:
+                st.link_button("원문·출처 열기", link, icon=":material/open_in_new:")
+            if cand.get("doi"):
+                st.caption("DOI · " + ui.md(cand["doi"]))
 
 
 WATCH_MINUTES = 20
@@ -504,7 +653,7 @@ def _import_popover(project):
             with st.spinner(file.name + " 색인 중"):
                 linked += register(project, file.getvalue(), file.name)[1] is not None
         _say(f"PDF {len(files)}건을 등록했습니다." + (f" PDF를 기다리던 문헌 {linked}건과 묶었습니다." if linked else "")
-             + " 포함·제외는 「단계별 보기 → 2 · 문헌 선별」에서, 또는 아래 일괄 포함으로.")
+             + " 「문헌 탐색 → 내 문헌」에서 포함·제외를 정하세요.")
         st.rerun()
     st.markdown("**Zotero·EndNote에서 내보낸 목록(.ris / .bib)**")
     ref = st.file_uploader("RIS 또는 BibTeX", type=["ris", "bib", "txt"], key="wb_ref")
@@ -585,7 +734,7 @@ def _fields_popover(project, config):
         project.save_config(config["plan"], fields, config["synthesis_rules"])
         _say(f"「{ui.md(field['name'])}」의 분량을 「{ui.md(length)}」로 바꿨습니다. 다음 「AI로 추출」부터 적용됩니다.")
         st.rerun()
-    st.caption("질문·범위·포함 기준·읽을 쪽수는 「단계별 보기 → 1 · 조사 설계」에서 바꿉니다.")
+    st.caption("질문·범위·포함 기준·읽을 쪽수는 화면 위 「질문·선별 기준 편집」에서 바꿉니다.")
 
 
 def _extract_popover(project, runs, included, config):
@@ -598,6 +747,10 @@ def _extract_popover(project, runs, included, config):
     if not included:
         st.warning("포함으로 둔 문헌이 없습니다. 문헌을 담은 뒤 다시 누르세요.")
         return
+    st.caption("Claude Code·웹 AI에는 지정한 쪽의 원문과 조사 설정이 전달됩니다. AI 이용료와 한도는 제공자 조건을 따릅니다.")
+    with st.expander("설정된 API로 추출 · 로컬 모델 또는 외부 API"):
+        from .ai import api_extraction
+        api_extraction(project)
     if len(included) > plan["max_documents"]:
         st.warning(f"포함 문헌 {len(included)}편이 한 실행의 상한 {plan['max_documents']}편보다 많습니다. 일부를 제외하거나 상한을 올리세요.")
         st.button("상한 바꾸러 가기 · 1 · 조사 설계", key="wb_limit_go", on_click=open_steps, args=(ui.STAGES[0],))
@@ -623,12 +776,13 @@ def _extract_popover(project, runs, included, config):
                     st.session_state["wb_pending_run"] = run_id
                     st.session_state["wb_ai_error"] = str(exc)
                     if any((project.run_dir(run_id) / "responses").glob("*.json")):
-                        st.session_state["wb_run"] = run_id  # show what was saved before it stopped
+                        st.session_state["wb_route_run"] = run_id  # show what was saved before it stopped
                     if "/login" in str(exc):  # installed but signed out: show the other ways to continue
                         st.session_state["cc_status"] = {"available": False, "reason": str(exc)}
                 else:
-                    st.session_state["wb_run"] = run_id
+                    st.session_state["wb_route_run"] = run_id
                     st.session_state.pop("wb_ai_error", None)
+                    st.session_state["wb_route"] = workspace.VIEWS[0]
                     _say("추출이 끝났습니다. 비교표에서 값을 눌러 원문과 대조하세요.")
                     st.rerun()
         pending = st.session_state.get("wb_pending_run")
@@ -673,7 +827,8 @@ def _extract_popover(project, runs, included, config):
             except ValueError as exc:
                 st.error(str(exc))
             else:
-                st.session_state["wb_run"] = run_id
+                st.session_state["wb_route_run"] = run_id
+                st.session_state["wb_route"] = workspace.VIEWS[0]
                 _say("예시 응답을 넣었습니다. 비교표의 값을 눌러 원문과 대조해 보세요.")
                 st.rerun()
     with st.expander("응답 JSON 올리기 · 다른 사람이 만든 응답"):
@@ -707,8 +862,9 @@ def _web_ai_pack(project, pending):
         except (ValueError, json.JSONDecodeError) as exc:
             st.error(f"가져오지 못했습니다: {exc}")
         else:
-            st.session_state["wb_run"] = pending
-            st.session_state.pop("wb_pack_reply", None)
+            st.session_state["wb_route_run"] = pending
+            st.session_state["wb_route"] = workspace.VIEWS[0]
+            st.session_state["wb_clear_reply"] = True
             _say(f"{ui.md(titles[target])} 응답을 가져왔습니다. 남은 문헌도 같은 방법으로.")
             st.rerun()
 
@@ -724,10 +880,13 @@ def _export_popover(project, runs):
     st.download_button("보고서만 · Markdown", report(project, run_id), f"{stem}.md", width="stretch", key="wb_md", icon=":material/description:")
     st.download_button("참고문헌 목록 · 텍스트", bibliography(project, run_id), f"{stem}_references.txt", width="stretch", key="wb_bib", icon=":material/format_list_numbered:")
     st.caption("한글·Word에는 ZIP 안 comparison.csv(문헌×항목)·evidence.csv(근거별 기록)를 엑셀로 열어 붙이는 것이 가장 쉽습니다.")
-    st.divider()
+
+
+def _synthesis_controls(project, run_id):
     from deep_research.providers import claude_code_status, run_claude_code
     approved = flow.accepted(project, run_id)
     st.markdown(f"**종합문(선택)** · 채택 근거 {len(approved)}건으로 AI 초안")
+    st.caption("실행하면 채택한 값·발췌·조사 설정을 Claude Code에 전달합니다. 이용 조건과 사용량이 적용됩니다.")
     if st.button("종합 요청 만들기", disabled=not approved, key="wb_synth"):
         flow.prepare_synthesis(project, run_id)
         status = claude_code_status()
@@ -741,10 +900,8 @@ def _export_popover(project, runs):
                     st.rerun()
         else:
             st.warning(status["reason"] + " 요청문은 「단계별 보기 → 5 · 종합」에 있습니다.")
-    current = flow.current_synthesis(project, run_id)
-    if current:
-        for claim in current["claims"]:
-            st.markdown(f"- **{claim['kind']}** {ui.md(claim['text'])}")
+    if flow.current_synthesis(project, run_id):
+        st.success("종합문이 준비됐습니다. 「종합·출처」 탭에서 각 주장의 근거를 확인하세요.")
 
 
 def reset_design(project):

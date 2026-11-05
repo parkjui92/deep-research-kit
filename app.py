@@ -1,19 +1,21 @@
 """Local review desk. All persistent operations use the same core as the skill/CLI."""
+import os
 from pathlib import Path
 
 import streamlit as st
 
-from deep_research.project import Project, read_json, safe_id
+from deep_research.project import Project, read_json
 from ui import chrome as ui
 from ui.pages import PAGES
+from ui.start import start_page
 from ui.workbench import workbench
 
 st.set_page_config(page_title="Deep Research Kit · 근거 검토실", page_icon="📖", layout="wide")
 ui.inject_css()
 
 ROOT = Path(__file__).resolve().parent
-PROJECTS = ROOT / "projects"
-PROJECTS.mkdir(exist_ok=True)
+PROJECTS = Path(os.environ.get("DRK_PROJECTS_DIR", ROOT / "projects")).expanduser().resolve()
+PROJECTS.mkdir(parents=True, exist_ok=True)
 
 
 LAST = PROJECTS / ".last-project"
@@ -37,7 +39,7 @@ def make_example(folder: str, title: str, with_table: bool):
             apply_example_screening(project)
             run_id = load_reference(project)
             st.session_state["wb_run"] = run_id
-    st.session_state["project_name"] = folder
+    st.session_state["open_project"] = folder
     remember(folder)
     if with_table:
         # Set before the sidebar's mode switch (key mode_pick) is drawn in the next run.
@@ -52,33 +54,41 @@ def make_example(folder: str, title: str, with_table: bool):
 def sidebar(existing):
     st.sidebar.markdown('<div class="drk-brand">DEEP RESEARCH KIT</div><div class="drk-brand-sub">근거 검토실</div>',
                         unsafe_allow_html=True)
-    with st.sidebar.expander("프로젝트 만들기", expanded=not existing):
-        name = st.text_input("폴더 이름 · 영문·숫자·하이픈", "my-research")
-        title = st.text_input("프로젝트 제목", "나의 문헌조사", help="공통 사례도 여기 적은 제목으로 만들어집니다.")
-        if st.button("빈 프로젝트 만들기", width="stretch"):
-            Project(PROJECTS / safe_id(name)).initialize(title)
-            st.session_state["project_name"] = safe_id(name)
-            remember(safe_id(name))
-            st.session_state["flash"] = "빈 프로젝트를 만들었습니다. 1단계에서 조사 질문과 기준을 적고, 2단계에서 PDF를 등록하세요."
-            st.rerun()
-        if st.button("공통 사례 만들기 · 실제 논문 3편 내려받음", width="stretch", help="약 20초 걸립니다. 수업용 공통 문헌 3편을 등록합니다."):
-            make_example(safe_id(name), title, with_table=False)
+    if st.sidebar.button("＋ 새 조사", width="stretch"):
+        st.session_state["start_open"] = True
+        st.session_state.pop("start_path", None)
+    if target := st.session_state.pop("open_project", None):
+        st.session_state["project_name"] = target
+        st.session_state["start_open"] = False
+        st.session_state["mode"] = st.session_state["mode_pick"] = "작업 화면"
     if not existing:
         return None
     if "project_name" not in st.session_state:
         wanted = st.query_params.get("project") or (LAST.read_text(encoding="utf-8").strip() if LAST.exists() else "")
         st.session_state["project_name"] = wanted if wanted in existing else existing[0]
-    name = st.sidebar.selectbox("프로젝트", existing, key="project_name")
+    name = st.sidebar.selectbox("내 조사", existing, key="project_name",
+                                format_func=lambda n: read_json(PROJECTS / n / "project.json")["title"],
+                                on_change=lambda: st.session_state.update(start_open=False))
+    if st.session_state.get("start_open"):
+        return None
     st.query_params["project"] = name
     remember(name)
     project = Project(PROJECTS / name)
     if "mode_pick" not in st.session_state:
         st.session_state["mode_pick"] = st.session_state.get("mode", "작업 화면")
-    mode = st.sidebar.segmented_control("보기", ["작업 화면", "단계별(학습)"], key="mode_pick",
-                                        help="작업 화면 = 비교표와 원문을 바로 보며 일합니다. 단계별 = 조사 설계부터 한 단계씩 따라갑니다(수업용).")
+    with st.sidebar.expander("도움말·보기 설정"):
+        mode = st.segmented_control("보기", ["작업 화면", "단계별(학습)"], key="mode_pick")
+        st.caption("단계별 안내에서는 조사 설계부터 따라갈 수 있습니다.")
     st.session_state["mode"] = mode or st.session_state.get("mode", "작업 화면")
     if st.session_state["mode"] == "작업 화면":
-        st.sidebar.caption(f"폴더 `{name}` · AI 실행은 Claude Code가 있으면 바로, 없으면 요청문 복사 또는 예제 응답")
+        sources = project.catalog()
+        st.sidebar.divider()
+        st.sidebar.caption("프로젝트 현황")
+        st.sidebar.markdown(f"**{len(sources)}** 문헌　 ·　 **{sum(s['decision'] == 'include' for s in sources)}** 포함")
+        st.sidebar.caption("앱이 실행되는 컴퓨터에 저장 · AI 없이 원문 검색·노트·내보내기 가능")
+        with st.sidebar.expander("AI 연결·도움말"):
+            st.caption("근거 비교에서 Claude Code·웹 AI·설정된 API를 선택합니다. 로컬에 저장해도 외부 AI를 실행하면 지정한 원문이 전달됩니다.")
+            st.caption(f"프로젝트 폴더 · {name}")
         return project
     # The marks change the option labels, which would reset a keyed radio on every rerun;
     # keep the chosen stage ourselves and hand the radio its index.
@@ -100,33 +110,7 @@ def main():
     existing = sorted(p.name for p in PROJECTS.iterdir() if (p / "project.json").exists())
     project = sidebar(existing)
     if project is None:
-        st.markdown('<div class="drk-wordmark" style="font-size:1.1rem;margin-top:.5rem">Deep Research Kit</div>', unsafe_allow_html=True)
-        st.title("여러 논문을 내 질문에 맞는 비교표로 정리하세요.")
-        st.markdown('<div class="drk-lead" style="font-size:1.1rem">필요한 항목을 자동 추출하고, 원문을 확인해 고치고, 인용과 함께 가져가세요. '
-                    'AI 실행은 Claude Code(앤트로픽의 터미널 도구)를 앱이 직접 부르거나, 수업용 예제 응답으로 합니다. 소프트웨어는 무료입니다.</div>',
-                    unsafe_allow_html=True)
-        a, b = st.columns(2)
-        if a.button("내 문헌으로 시작", type="primary", width="stretch"):
-            Project(PROJECTS / "my-research").initialize("나의 문헌조사")
-            st.session_state["project_name"] = "my-research"
-            remember("my-research")
-            st.session_state["mode"] = st.session_state["mode_pick"] = "작업 화면"
-            st.session_state["flash"] = "빈 프로젝트를 만들었습니다. 「문헌 찾기」로 검색해 담거나 「PDF 가져오기」로 올린 뒤 「AI로 추출」을 누르세요."
-            st.rerun()
-        if b.button("논문 3편 예제 체험 · 바로 비교표 보기", width="stretch"):
-            make_example("class-example", "AI와 지식업무 · 논문 3편 예제", with_table=True)
-        for column, (head, body) in zip(st.columns(3), [
-                ("내가 정한 항목으로 여러 논문을 한 번에 비교", "대상·방법·결과·한계 같은 항목을 정하면 AI가 문헌마다 값을 뽑아 표로 놓습니다."),
-                ("표의 값을 누르면 원문이 열리고, 수정한 판단이 남는다", "AI가 값을 뽑아낸 문장이 PDF에 표시됩니다. 채택·수정·보류가 기록으로 남고 채택한 값만 결과에 들어갑니다."),
-                ("논문·항목을 추가해도 기록은 보존", "실행마다 기준과 값이 보존되고 전후를 비교합니다. 바뀐 부분만 다시 처리하는 기능은 다음 판의 목표입니다.")]):
-            with column, st.container(border=True):
-                st.markdown(f"**{head}**")
-                st.caption(body)
-        with st.container(border=True):
-            st.markdown("**흐름** · 문헌 모으기 → 쓸 논문 고르기 → AI로 추출 → 값마다 원문 확인(채택·수정 후 채택·보류·제외) → (선택) 종합 → 내보내기")
-            st.markdown("**끝에 남는 것** · 결과 ZIP 하나: 보고서(research.md) · 비교표(comparison.csv, 문헌×항목) · "
-                        "근거 기록(evidence.csv, 값마다 원문 쪽·검토자·이유) · 전체 기록(research.json). 원본 PDF는 고르면 함께 담깁니다.")
-            st.caption("채택한 값만 비교표와 종합에 들어갑니다. 미검토·보류 값은 '확인 필요'로 따로 남습니다.")
+        start_page(PROJECTS, make_example)
         return
     title = read_json(project.root / "project.json")["title"]
     if st.session_state.get("mode", "작업 화면") == "작업 화면":

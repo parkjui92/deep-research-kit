@@ -121,13 +121,13 @@ def test_cropped_page_says_why_it_cannot_be_adopted(tmp_path):
 
 def test_sample_question_is_flagged_in_a_new_project(tmp_path):
     from deep_research.project import Project
-    from ui.chrome import STAGES
     p = Project(tmp_path / "projects" / "mine").initialize()
     app = AppTest.from_function(_workbench_script, args=(str(p.root),)).run(timeout=60)
     assert any("조사 질문이 아직 예시 그대로" in m.value for m in app.warning)
-    app = _button(app, "조사 질문 바꾸러 가기").click().run(timeout=60)
+    app.text_area(key="wb_question").set_value("내 연구 질문")
+    app = _button(app, "조사 설계 저장").click().run(timeout=60)
     assert not app.exception
-    assert app.session_state["mode"] == "단계별(학습)" and app.session_state["stage_value"] == STAGES[0]
+    assert p.config()["plan"]["question"] == "내 연구 질문"
 
 
 def test_blank_lines_and_brackets_cannot_hide_text():
@@ -212,9 +212,141 @@ def test_missing_pdf_panel_offers_the_browser_and_the_downloads_watch(tmp_path):
     p.remember_candidate({"title": "Blocked <Paper>", "doi": "10.1/x", "url": "https://doi.org/10.1/x", "year": 2025,
                           "status": "pdf_missing", "source_id": None,
                           "attempts": [{"route": "논문 페이지", "url": "https://doi.org/10.1/x", "result": "접근 거부(403)"}]})
-    app = AppTest.from_function(_workbench_script, args=(str(p.root),)).run(timeout=60)
+    app = AppTest.from_function(_workbench_script, args=(str(p.root),))
+    app.session_state["wb_library_view"] = "내 PDF"
+    app = app.run(timeout=60)
     assert not app.exception
     assert any("PDF를 아직 받지 못한 문헌 1건" in m.value for m in app.markdown)
     assert any("Blocked \\<Paper\\>" in m.value for m in app.markdown)
     assert any("논문 페이지 → 접근 거부\\(403\\)" in c.value for c in app.caption)  # escaped, shown as written
     assert any(t.label == "다운로드 폴더 지켜보기" for t in app.toggle)
+
+
+def test_filter_empty_state_and_reset(tmp_path):
+    p, _ = _project_with_value(tmp_path, "Research result")
+    app = AppTest.from_function(_workbench_script, args=(str(p.root),)).run()
+    app.selectbox(key="wb_filter").set_value("채택").run()
+    assert not app.exception
+    assert any("조건에 맞는 추출값이 없습니다" in m.value for m in app.markdown)
+    assert not any(b.key and b.key.startswith("cell-") for b in app.button)
+    app.button(key="wb_reset").click().run()
+    assert not app.exception
+    assert any(b.key and b.key.startswith("cell-") for b in app.button)
+
+
+def test_review_advances_inside_filtered_queue(tmp_path):
+    from deep_research import workflow as w
+    p, run = _project_with_value(tmp_path, "Research result")
+    app = AppTest.from_function(_workbench_script, args=(str(p.root),)).run()
+    app.selectbox(key="wb_filter").set_value("미검토").run()
+    picked = app.session_state["wb_pick"]
+    next(r for r in app.radio if r.label == "이 값을").set_value("accept")
+    next(c for c in app.checkbox if "앞뒤 문맥" in c.label).check()
+    next(t for t in app.text_input if t.label.startswith("이유 한 줄")).set_value("PDF 1쪽과 대조")
+    next(t for t in app.text_input if t.label.startswith("검토자")).set_value("Reviewer")
+    _button(app, "저장하고 다음 미검토로").click().run()
+    assert not app.exception
+    assert app.session_state["wb_pick"] != picked
+    assert next(r for r in w.evidence(p, run) if r["id"] == picked)["review"]["status"] == "accept"
+    assert not any(b.key == "cell-" + picked and not b.disabled for b in app.button)
+
+
+def test_design_edit_preserves_existing_run(tmp_path):
+    from deep_research import workflow as w
+    p, run = _project_with_value(tmp_path, "Research result")
+    original = w.manifest(p, run)["config"]
+    app = AppTest.from_function(_workbench_script, args=(str(p.root),)).run()
+    app.text_area(key="wb_question").set_value("새 연구 질문")
+    _button(app, "조사 설계 저장").click().run()
+    assert not app.exception
+    assert p.config()["plan"]["question"] == "새 연구 질문"
+    assert w.manifest(p, run)["config"] == original
+    assert any("조사 설계 또는 문헌 구성이 바뀌었습니다" in i.value for i in app.caption)
+
+
+def test_results_link_opens_the_exact_evidence(tmp_path):
+    from deep_research import workflow as w
+    p, run = _project_with_value(tmp_path, "Research result")
+    target = w.evidence(p, run)[-1]
+    w.review(p, run, target["id"], "accept", "PDF 대조", "Reviewer")
+    request = w.prepare_synthesis(p, run)
+    w.import_synthesis(p, run, {"request_id": request["request_id"], "claims": [
+        {"text": "Supported claim", "kind": "finding", "evidence_ids": [target["id"]]}], "gaps": []})
+    app = AppTest.from_function(_workbench_script, args=(str(p.root),))
+    app.session_state["wb_view"] = "연구 결과"
+    app.session_state["wb_columns"] = ["population"]
+    app = app.run()
+    assert not app.exception
+    app.button(key="wb_claim_0_0").click().run()
+    assert not app.exception
+    assert app.session_state["wb_pick"] == target["id"]
+    assert app.session_state["wb_view"] == "근거 비교"
+    assert app.session_state["wb_layout"] == "집중 검토"
+    assert app.session_state["wb_columns"] == [target["field_id"]]
+
+
+def test_library_screening_preserves_existing_quotes(tmp_path):
+    from deep_research.project import format_screen_quotes
+    p, _ = _project_with_value(tmp_path, "Research result")
+    sid = p.catalog()[0]["id"]
+    p.screen(sid, "include", "기존 이유", quotes=["A randomized study found 19 percent longer completion time."])
+    before = format_screen_quotes(p.source(sid)["screen_quotes"])
+    app = AppTest.from_function(_workbench_script, args=(str(p.root),))
+    app.session_state["wb_view"] = "문헌 모으기"
+    app.session_state["wb_library_view"] = "내 PDF"
+    app = app.run()
+    next(r for r in app.radio if r.label == "선별 판단").set_value("pending")
+    next(t for t in app.text_area if t.label == "선별 이유 (필수)").set_value("다시 살펴보기")
+    _button(app, "선별 저장").click().run()
+    assert not app.exception
+    assert p.source(sid)["decision"] == "pending"
+    assert format_screen_quotes(p.source(sid)["screen_quotes"]) == before
+
+
+def _switching_script(roots):
+    import streamlit as st
+
+    from deep_research.project import Project
+    from ui.workbench import workbench
+    root = st.selectbox("Test project", roots, key="test_root")
+    workbench(Project(root))
+
+
+def test_project_switch_clears_search_and_design_drafts(tmp_path):
+    p, _ = _project_with_value(tmp_path / "first", "First")
+    q, _ = _project_with_value(tmp_path / "second", "Second")
+    config = q.config()
+    q.save_config({**config["plan"], "question": "Second question"}, config["fields"], config["synthesis_rules"])
+    app = AppTest.from_function(_switching_script, args=([str(p.root), str(q.root)],)).run()
+    app.session_state["wb_results"] = [{"title": "Must not cross projects"}]
+    app.text_area(key="wb_question").set_value("Unsaved first question")
+    app.selectbox(key="test_root").set_value(str(q.root)).run()
+    assert not app.exception
+    assert app.text_area(key="wb_question").value == "Second question"
+    assert "wb_results" not in app.session_state
+
+
+def test_search_filters_and_history(tmp_path, monkeypatch):
+    from deep_research import providers
+    from deep_research.project import Project
+    p = Project(tmp_path / "search").initialize()
+    hits = [
+        {"title": "Earlier paper", "authors": ["A"], "year": 2020, "venue": "Journal", "cited_by": 10,
+         "pdf_url": "", "oa": False, "doi": "10.1/old", "url": "https://example.com/old", "abstract": "Old abstract"},
+        {"title": "Recent paper", "authors": ["B"], "year": 2025, "venue": "Journal", "cited_by": 1,
+         "pdf_url": "https://example.com/p.pdf", "oa": True, "doi": "10.1/new", "url": "https://example.com/new", "abstract": "<script>Research</script>"},
+    ]
+    monkeypatch.setitem(providers.PROVIDERS, "OpenAlex", lambda *a, **kw: (2, hits))
+    app = AppTest.from_function(_workbench_script, args=(str(p.root),)).run()
+    app.text_input(key="wb_q").set_value("test research")
+    _button(app, "문헌 검색").click().run()
+    assert not app.exception
+    app.selectbox(key="wb_result_order").set_value("최신순").run()
+    assert next(d.value for d in app.dataframe if "제목" in d.value.columns).iloc[0]["제목"] == "Recent paper"
+    app.checkbox(key="wb_result_oa").check().run()
+    assert not app.exception
+    assert len(next(d.value for d in app.dataframe if "제목" in d.value.columns)) == 1
+    assert any("\\<script\\>Research" in m.value for m in app.markdown)
+    _button(app, "조건 불러오기").click().run()
+    assert not app.exception
+    assert app.text_input(key="wb_q").value == "test research"

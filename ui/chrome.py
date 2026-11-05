@@ -192,6 +192,10 @@ def todo(project, stage: str):
 def app_header(project, title: str, stage: str | None):
     """Product name + one line on what the tool does, the project as a chip, and a horizontal stepper
     (Covidence/Elicit onboarding pattern; GOV.UK task-list states: done ✓ · current ● · todo ○)."""
+    if stage is None:
+        st.markdown('<div class="drk-work-header"><span>Deep Research Kit</span>'
+                    f'<span>{h(title)}</span></div>', unsafe_allow_html=True)
+        return
     stepper = ""
     if stage is not None:
         status = stage_status(project, stage)
@@ -206,7 +210,7 @@ def app_header(project, title: str, stage: str | None):
     st.markdown(
         f'<div class="drk-app{compact}">'
         '<div class="drk-app-top"><div><div class="drk-wordmark">Deep Research Kit</div>'
-        '<div class="drk-tagline">여러 논문을 내 질문에 맞는 비교표로 · AI가 뽑은 값을 원문으로 확인해 근거로 남깁니다</div></div>'
+        '<div class="drk-tagline">문헌 탐색부터 비교·검토, 출처가 남는 연구 결과까지</div></div>'
         f'<div class="drk-project"><span class="k">프로젝트</span><span class="v">{h(title)}</span><code>{h(project.root.name)}</code></div></div>'
         f'{stepper}</div>', unsafe_allow_html=True)
 
