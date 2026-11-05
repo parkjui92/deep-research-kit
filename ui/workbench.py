@@ -12,7 +12,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from deep_research import integrity
+from deep_research import integrity, translate
 from deep_research import workflow as flow
 from deep_research.exports import bibliography, citation, display_value, export_zip, report
 from deep_research.project import (
@@ -29,7 +29,7 @@ from deep_research.project import (
 )
 
 from . import chrome as ui
-from . import reading, workspace
+from . import reading, translation, workspace
 from .research import FILTERS, SORTS, filter_evidence, review_counts, search_view
 
 CELL_TONE = {"accept": "go", "edit": "edit", "hold": "wait", "reject": "stop", "pending": "todo"}
@@ -241,6 +241,8 @@ def _comparison(project, run_id, included, config):
                 _comparison_grid(project, shown_sources, fields, by_key, visible_ids,
                                  new_sources if not query and status == "전체" else [])
                 st.caption("셀 선택 → 옆에서 원문 확인 · ○ 미검토 · ✓ 채택 · ✎ 수정 · ⏸ 보류")
+                translation.control(project, [t for r in visible for t in _foreign_texts(r)], "grid",
+                                    "보이는 근거의 영문 값·인용문 한글 번역")
             with detail:
                 row = next(r for r in visible if r["id"] == st.session_state["wb_pick"])
                 source = next(s for s in run["sources"] if s["id"] == row["source_id"])
@@ -257,6 +259,11 @@ def _comparison(project, run_id, included, config):
             c.button("다음 근거 →", disabled=index == len(ids) - 1, key="wb_forward", on_click=_pick, args=(ids[min(len(ids) - 1, index + 1)],))
             with st.container(key="drk-inspector"):
                 _inspector(project, run_id, run, visible, fields)
+
+
+def _foreign_texts(row):
+    """The value and the quotes of one evidence row; quotes the extraction already translated are skipped."""
+    return [display_value(row) or ""] + [loc["quote"] for loc in row["locators"] if not loc.get("translation")]
 
 
 def _focus():
@@ -338,12 +345,15 @@ def _detail(project, run_id, row, source, field_name, rows):
         if (source.get("integrity") or {}).get("status") in integrity.FLAGGED:
             ui.integrity_note(source["integrity"], "철회·정정 · ")
         st.markdown(f'<div class="drk-value">{ui.h(display_value(row) or "읽은 범위에서 찾지 못함")}</div>', unsafe_allow_html=True)
+        ko = translation.cache(project)
+        translation.show(ko, display_value(row))
         if row["review"]["status"] == "edit":
             with st.expander("수정 전 AI 추출값"):
                 st.markdown(ui.md(row["value"]))
         many = len(row["locators"]) > 1
         for i, locator in enumerate(row["locators"], 1):
-            st.markdown(ui.quote_html(locator, i if many else None), unsafe_allow_html=True)
+            st.markdown(ui.quote_html(locator, i if many else None, translate.lookup(ko, locator["quote"])), unsafe_allow_html=True)
+        translation.control(project, _foreign_texts(row), "ev_" + row["id"], "이 근거의 영문 한글 번역", compact=True, paste=False)
         if geometry := ui.geometry_note(row):
             st.warning(geometry, icon=":material/crop_rotate:")
         # What the model was given and what it wrote about its own reading are different things (#20).
@@ -561,16 +571,22 @@ def search_results_panel(project):
         if not visible:
             st.info("조건에 맞는 결과가 없습니다. 결과 내 검색어나 OA 필터를 바꿔 보세요.")
             return
+        translation.control(project, [t for r in visible for t in (r["title"], r.get("abstract", ""))],
+                            "results", "보이는 결과의 영문 제목·초록 한글 번역")
+        ko = translation.cache(project)
         # A new key for every ordered set prevents checkboxes moving to a different paper.
         signature = flow.fingerprint(visible)[:12]
-        records = [{"담기": False, "제목": ("[철회] " if r.get("retracted") else "") + r["title"], "저자": ", ".join(r.get("authors", [])[:3]),
+        records = [{"담기": False, "제목": ("[철회] " if r.get("retracted") else "") + r["title"],
+                    **({"제목 번역(참고)": translate.lookup(ko, r["title"])} if any(translate.lookup(ko, x["title"]) for x in visible) else {}),
+                    "저자": ", ".join(r.get("authors", [])[:3]),
                     "연도": r.get("year"), "학술지": r.get("venue", ""), "피인용": r.get("cited_by"),
                     "공개 원문": "OA" if r.get("pdf_url") or r.get("oa") else "확인 필요",
                     "자료원": ", ".join(r.get("providers", []))} for r in visible]
         edited = st.data_editor(records, hide_index=True, width="stretch", key="wb_results_editor_" + signature,
                                 disabled=[k for k in records[0] if k != "담기"], height=min(80 + 36 * len(visible), 420),
                                 column_config={"담기": st.column_config.CheckboxColumn(width="small"),
-                                               "제목": st.column_config.TextColumn(width="large")})
+                                               "제목": st.column_config.TextColumn(width="large"),
+                                               "제목 번역(참고)": st.column_config.TextColumn(width="large")})
         chosen = [visible[i] for i, r in enumerate(edited) if r.get("담기")]
         if st.button(f"선택한 {len(chosen)}건 후보함에 담기", disabled=not chosen, key="wb_collect", type="primary", icon=":material/library_add:"):
             for cand in chosen:
@@ -585,7 +601,9 @@ def search_results_panel(project):
             cand = visible[pick]
             if cand.get("retracted"):
                 st.error("OpenAlex가 철회된 문헌으로 표시합니다. 담더라도 근거로 쓰기 전에 철회 고지를 확인하세요.", icon=":material/block:")
+            translation.show(ko, cand["title"])
             st.markdown(ui.md(cand.get("abstract") or "이 자료원에서 초록을 제공하지 않았습니다. 원문 링크에서 확인하세요."))
+            translation.show(ko, cand.get("abstract", ""))
             link = ui.safe_url(cand.get("url") or ("https://doi.org/" + cand["doi"] if cand.get("doi") else ""))
             if link:
                 st.link_button("원문·출처 열기", link, icon=":material/open_in_new:")

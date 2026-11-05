@@ -287,14 +287,15 @@ def pdf_view(locators, focus=0, page=1):
     return {"pages": pages, "boxes": boxes, "options": options}
 
 
-def quote_html(locator, number=None) -> str:
-    """One quote as printed, the line under it, and the model's reference translation if any.
-    The translation is shown apart and marked: it was never matched against the PDF (#16)."""
+def quote_html(locator, number=None, translated="") -> str:
+    """One quote as printed, the line under it, and a reference translation if any: the one the
+    extraction model wrote, else one stored later by 「한글 번역」. Either is shown apart and
+    marked: it was never matched against the PDF (#16)."""
     head = f"발췌 {number} · " if number else ""
     out = (f'<div class="drk-quote">{h(locator["quote"])}</div>'
            f'<div class="drk-meta">{h(head + locator_meta(locator))}</div>')
-    if locator.get("translation"):
-        out += f'<div class="drk-translation">참고 번역(AI · 원문 대조 안 함) · {h(locator["translation"])}</div>'
+    if ko := locator.get("translation") or translated:
+        out += f'<div class="drk-translation">참고 번역(AI · 원문 대조 안 함) · {h(ko)}</div>'
     return out
 
 

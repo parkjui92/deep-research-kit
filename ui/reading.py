@@ -8,6 +8,7 @@ from deep_research.exports import citation
 from deep_research.project import read_json
 
 from . import chrome as ui
+from . import translation
 from .research import highlight, query_terms
 
 
@@ -45,14 +46,23 @@ def candidate_queue(project):
     state = item.get("reading") or {}
     ui.integrity_note(notebook.candidate_integrity(item, catalog), "철회·정정 · ")
     terms = query_terms(item.get("discovered_in"))
+    ko = translation.cache(project)
+    translation.show(ko, item["title"])
     if item.get("abstract"):
         st.markdown(f'<div class="drk-abstract">{highlight(item["abstract"], terms)}</div>', unsafe_allow_html=True)
+        translation.show(ko, item["abstract"])
         if terms:
             st.caption("노란 표시는 이 후보를 찾은 검색어가 나온 자리입니다. 관련성 판단이 아니니 읽을 이유는 직접 적으세요.")
     else:
         st.markdown("초록 정보가 없습니다. 출처에서 내용을 확인하세요.")
     if item.get("discovered_in"):
         st.caption("발견한 검색어 · " + ui.md(" / ".join(item["discovered_in"])))
+    a, b = st.columns(2)
+    with a:
+        translation.control(project, [item["title"], item.get("abstract", "")], "cand_" + key, "이 후보의 영문 한글 번역", paste=False)
+    with b:
+        translation.control(project, [t for i in items for t in (i["title"], i.get("abstract", ""))], "cand_all",
+                            "후보함 전체 영문 한글 번역")
     with st.form("wb_reading_" + key):
         status = st.radio("읽기 우선순위", list(notebook.READING_STATES),
                           index=list(notebook.READING_STATES).index(state.get("state", "next")),
@@ -123,6 +133,7 @@ def reading_room(project):
             pick = st.selectbox("검색된 원문 구간", range(len(hits)), key="wb_local_pick",
                                 format_func=lambda i: f"{hits[i]['title']} · PDF {hits[i]['page']}쪽 · {ui.short(hits[i]['text'], 75)}")
             chosen = hits[pick]
+            translation.control(project, [h["text"] for h in hits], "hits", "검색된 영문 구간 모두 한글 번역")
         else:
             st.info("읽을 수 있는 원문에서 찾지 못했습니다. 검색어를 바꾸거나 아래에서 직접 읽을 문헌을 고르세요.")
         if st.button("검색 닫고 직접 읽기", key="wb_local_clear"):
@@ -149,6 +160,9 @@ def reading_room(project):
         with left:
             st.markdown("**선택한 원문**")
             st.text(chosen["text"])
+            if not translation.show(translation.cache(project), chosen["text"]):
+                translation.control(project, [chosen["text"]], "passage_" + sid + passage_id, "이 구간 한글 번역", compact=True,
+                                    paste="wb_local_results" not in st.session_state)
             with st.form("wb_note_" + sid + passage_id):
                 kind = st.selectbox("노트 분류", notebook.NOTE_KINDS)
                 quote = st.text_area("원문에서 남길 발췌", chosen["text"], height=100)
