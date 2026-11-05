@@ -8,14 +8,19 @@ import zipfile
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
+from .integrity import FLAGGED, explain, notice_links
+from .integrity import label as integrity_label
 from .project import read_json
-from .workflow import accepted, current_synthesis, evidence, manifest, reviewed_value
+from .workflow import COMPARISON, accepted, current_synthesis, evidence, manifest, reviewed_value
 
 WORD = {"exact_normalized": "글자 그대로 일치", "multiple": "여러 곳에서 일치", "unmatched": "원문에서 못 찾음",
         "ambiguous": "같은 문장이 여러 곳", "too_short": "구절이 너무 짧음", "invalid_passage": "구간 없음",
         "unsupported_page_geometry": "회전·잘린 쪽", "partial_word": "단어 일부만 일치", "matched": "위치 찾음", "needs_check": "위치 미확인", "not_found": "미발견",
         "accept": "채택", "edit": "수정 후 채택", "hold": "보류", "reject": "제외", "pending": "미검토",
         "include": "포함", "exclude": "제외"}
+
+
+CLAIM_KIND = {"finding": "주요 발견", "agreement": "일치", "contrast": "차이·상충", "interpretation": "해석"}
 
 
 def word(code):
@@ -120,12 +125,24 @@ def report(project, run_id, local_pdf_links=False):
              "원문 문자열 일치, 사람의 근거 검토, AI 종합은 서로 다른 단계입니다. 쪽수는 PDF 파일의 첫 장부터 센 것이라 인쇄 쪽 번호와 다를 수 있습니다.", ""]
     if len(notes) == 1:
         lines += ["추출 메모(모든 근거 공통): " + text(next(iter(notes))), ""]
+    cited = {row["source_id"] for row in approved}
+    flagged = [s for sid, s in sources.items() if sid in cited and (s.get("integrity") or {}).get("status") in FLAGGED]
+    unchecked = [s for sid, s in sources.items() if sid in cited
+                 and (s.get("integrity") or {}).get("status") not in {*FLAGGED, "clear"}]
+    if flagged or unchecked:
+        lines += ["## 철회·정정 확인", ""]
+        for source in flagged:
+            links = " ".join(f"<{u}>" for u in notice_links(source["integrity"]))
+            lines.append(f"- **{text(source['title'])}**: {text(explain(source['integrity']))} {links}".rstrip())
+        if unchecked:
+            lines.append(f"- 채택 근거의 문헌 {len(unchecked)}편은 철회·정정 여부를 확인하지 않았거나 확인하지 못했습니다.")
+        lines += ["", "Crossref·OpenAlex의 고지만 조회합니다. 고지가 없다는 것이 문헌의 타당성을 뜻하지는 않습니다.", ""]
     lines += ["## 종합", ""]
     if synthesis:
         lines.append("아래는 검토된 근거에 기반한 AI 종합 초안입니다. 주장과 근거의 의미적 연결은 최종 확인이 필요합니다.\n")
         for claim in synthesis["claims"]:
             refs = ", ".join(f"[{e}](#{e})" for e in claim["evidence_ids"])
-            lines.append(f"- **{claim['kind']}**: {text(claim['text'])} ({refs})")
+            lines.append(f"- **{CLAIM_KIND.get(claim['kind'], claim['kind'])} (AI 분류)**: {text(claim['text'])} ({refs})")
         lines += ["", "### 남은 질문", ""] + ["- " + text(g) for g in synthesis.get("gaps", [])]
     else:
         lines.append("유효한 종합이 아직 없습니다. 현재 확인된 근거와 미확인 항목을 함께 제공합니다.")
@@ -143,6 +160,8 @@ def report(project, run_id, local_pdf_links=False):
                   f"읽기 범위: PDF {row['page_scope']['from']}~{row['page_scope']['to']}쪽 / 전체 {row['page_scope']['total']}쪽", "",
                   f"위치 대조: {word(row['match_status'])} · 검토: {word(row['review']['status'])}", "",
                   f"검토자: {text(row['review']['reviewer'] or '미검토')} · 이유: {text(row['review']['note'] or '—')}", ""]
+        if row["review"].get("comparison"):
+            lines += [f"다른 문헌과 비교(검토자 표시): {COMPARISON[row['review']['comparison']]}", ""]
         if row["review"]["status"] == "edit":
             lines += [f"수정값: {text(display_value(row))}", ""]
         for locator in row["locators"]:
@@ -173,7 +192,9 @@ def report(project, run_id, local_pdf_links=False):
             lines += [f"  - [{tag} · {where} · {word(quote['status'])}] {text(quote['quote']).replace(chr(10), ' ')}"]
     lines += ["", "## 참고문헌", ""]
     for i, source in enumerate(sorted(sources.values(), key=lambda s: (_authors_text(s.get("bib")), s["title"])), 1):
-        lines.append(f"{i}. {text(citation(source))}  ")
+        mark = (f" **[{integrity_label(source['integrity'])}]**"
+                if (source.get("integrity") or {}).get("status") in FLAGGED else "")
+        lines.append(f"{i}. {text(citation(source))}{mark}  ")
         lines.append(f"   문헌 ID `{source['id']}` · SHA-256 `{source['sha256'][:16]}…`")
     lines += ["", "## 위키로 이어가기", "",
               "이 문서와 research.json을 함께 가져오세요. 근거 ID·문헌 ID·원문 위치·검토 상태를 보존하세요.",
@@ -189,14 +210,17 @@ def export_zip(project, run_id, include_pdfs=False):
         archive.writestr("research.json", json.dumps(data, ensure_ascii=False, indent=2))
         csv_buffer = io.StringIO()
         writer = csv.writer(csv_buffer)
-        writer.writerow(["근거 ID", "문헌 ID", "문헌", "항목", "검토 후 값", "위치 대조", "검토 상태", "검토자", "검토 이유", "PDF 쪽"])
-        sources = {s["id"]: s for s in data["run"]["sources"]}
+        writer.writerow(["근거 ID", "문헌 ID", "문헌", "항목", "검토 후 값", "위치 대조", "검토 상태", "검토자", "검토 이유", "PDF 쪽",
+                         "다른 문헌과 비교", "철회·정정"])
+        sources = {s["id"]: project.with_bib(s) for s in data["run"]["sources"]}
         fields = {f["id"]: f["name"] for f in data["run"]["config"]["fields"]}
         for row in data["evidence"]:
             pages = ", ".join(str(loc["page"]) for loc in row["locators"] if loc.get("page")) or ""
             values = [row["id"], row["source_id"], sources.get(row["source_id"], {}).get("title", ""), fields.get(row["field_id"], row["field_id"]),
                       display_value(row) or "", word(row["match_status"]), word(row["review"]["status"]),
-                      row["review"].get("reviewer", "") or "", row["review"].get("note", "") or "", pages]
+                      row["review"].get("reviewer", "") or "", row["review"].get("note", "") or "", pages,
+                      COMPARISON.get(row["review"].get("comparison"), ""),
+                      integrity_label(sources.get(row["source_id"], {}).get("integrity"))]
             # Spreadsheet formula injection protection for user/model text.
             writer.writerow(["'" + str(v) if str(v).startswith(("=", "+", "-", "@")) else v for v in values])
         archive.writestr("evidence.csv", "\ufeff" + csv_buffer.getvalue())

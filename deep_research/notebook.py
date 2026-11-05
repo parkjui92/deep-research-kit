@@ -27,6 +27,25 @@ def candidate_key(record):
     return "title:" + re.sub(r"\s+", " ", title).strip()
 
 
+TEXT_STATES = {"full": "본문 확보", "no_text": "글자 없는 PDF", "abstract": "초록만", "none": "미확보"}
+
+
+def text_status(item, catalog_by_id):
+    """What can actually be read for a candidate. An abstract is not the paper: a candidate with
+    only an abstract must not look like one whose full text was read."""
+    source = catalog_by_id.get(item.get("source_id") or "")
+    if source:
+        return "no_text" if bool(source.get("page_count")) and not source.get("text_pages") else "full"
+    return "abstract" if (item.get("abstract") or "").strip() else "none"
+
+
+def candidate_integrity(item, catalog_by_id=None):
+    """The stored check, the registered source's check, or OpenAlex's retraction flag from search."""
+    from .integrity import from_search
+    source = (catalog_by_id or {}).get(item.get("source_id") or "") or {}
+    return source.get("integrity") or item.get("integrity") or from_search(item)
+
+
 def update_reading(project, key, state, reason):
     if state not in READING_STATES:
         raise ValueError("읽기 상태를 선택하세요.")

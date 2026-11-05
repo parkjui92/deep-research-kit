@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import streamlit as st
 
-from deep_research import notebook
+from deep_research import integrity, notebook
 from deep_research.exports import citation
 from deep_research.project import read_json
 
 from . import chrome as ui
+from .research import highlight, query_terms
 
 
 def candidate_queue(project):
@@ -21,11 +22,20 @@ def candidate_queue(project):
         return
     order = {"next": 0, "later": 1, "done": 2}
     items.sort(key=lambda x: order.get((x.get("reading") or {}).get("state", "next"), 0))
-    st.dataframe([{"문헌": i["title"], "연도": i.get("year"),
+    catalog = {s["id"]: s for s in project.catalog()}
+    st.dataframe([{"문헌": i["title"],
+                   "원문": notebook.TEXT_STATES[notebook.text_status(i, catalog)],
+                   "철회·정정": integrity.label(notebook.candidate_integrity(i, catalog)),
                    "읽기": notebook.READING_STATES.get((i.get("reading") or {}).get("state", "next")),
-                   "PDF": "확보" if i.get("source_id") else "미확보",
+                   "연도": i.get("year"),
                    "읽을 이유·메모": (i.get("reading") or {}).get("reason", "")} for i in items],
                  hide_index=True, width="stretch", height=min(70 + len(items) * 36, 300))
+    st.caption("원문: 본문 확보 · 글자 없는 PDF(스캔본, 검색·추출 불가) · 초록만 · 미확보. 초록만 읽은 후보를 본문 근거로 쓰지 마세요.")
+    with_doi = [i for i in items if i.get("doi")]
+    if with_doi and st.button(f"DOI가 있는 후보 {len(with_doi)}편 철회·정정 확인", key="wb_integrity_candidates",
+                              icon=":material/fact_check:", help="Crossref에 DOI만 보내 철회·정정·우려 표명 고지를 조회합니다. Crossref에 없는 DOI(arXiv 등)는 OpenAlex의 철회 표시만 봅니다."):
+        _check_candidates(project, with_doi, catalog)
+        st.rerun()
     keys = [notebook.candidate_key(i) for i in items]
     if st.session_state.get("wb_candidate") not in keys:
         st.session_state["wb_candidate"] = keys[0]
@@ -33,7 +43,14 @@ def candidate_queue(project):
                        format_func=lambda k: next(i["title"] for i in items if notebook.candidate_key(i) == k))
     item = next(i for i in items if notebook.candidate_key(i) == key)
     state = item.get("reading") or {}
-    st.markdown(ui.md(item.get("abstract") or "초록 정보가 없습니다. 출처에서 내용을 확인하세요."))
+    ui.integrity_note(notebook.candidate_integrity(item, catalog), "철회·정정 · ")
+    terms = query_terms(item.get("discovered_in"))
+    if item.get("abstract"):
+        st.markdown(f'<div class="drk-abstract">{highlight(item["abstract"], terms)}</div>', unsafe_allow_html=True)
+        if terms:
+            st.caption("노란 표시는 이 후보를 찾은 검색어가 나온 자리입니다. 관련성 판단이 아니니 읽을 이유는 직접 적으세요.")
+    else:
+        st.markdown("초록 정보가 없습니다. 출처에서 내용을 확인하세요.")
     if item.get("discovered_in"):
         st.caption("발견한 검색어 · " + ui.md(" / ".join(item["discovered_in"])))
     with st.form("wb_reading_" + key):
@@ -61,6 +78,22 @@ def candidate_queue(project):
             result = collect(project, item)
         st.session_state["flash"] = "PDF를 등록했습니다." if result.get("source_id") else "공개 PDF를 확보하지 못했습니다. 내 PDF에서 파일을 직접 연결할 수 있습니다."
         st.rerun()
+
+
+def _check_candidates(project, items, catalog):
+    with st.spinner("Crossref에서 철회·정정 고지를 조회하는 중"):
+        records = []
+        for item in items:
+            previous = notebook.candidate_integrity(item, catalog) or {}
+            record = integrity.check_doi(item["doi"], openalex_retracted=previous.get("via") == "OpenAlex 검색 결과" or None)
+            project.set_candidate_integrity(notebook.candidate_key(item), record)
+            if item.get("source_id") in catalog:
+                project.set_integrity(item["source_id"], record)
+            records.append(record)
+    found = integrity.flagged(records)
+    failed = sum(r["status"] == "unknown" for r in records)
+    message = f"{len(records)}편 확인 · 철회·정정·우려 고지 {len(found)}편" + (f" · 조회 실패 {failed}편" if failed else "")
+    st.session_state["flash"] = message + ". 고지가 없다는 것이 문헌의 타당성을 뜻하지는 않습니다."
 
 
 def reading_room(project):

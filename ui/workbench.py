@@ -12,6 +12,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from deep_research import integrity
 from deep_research import workflow as flow
 from deep_research.exports import bibliography, citation, display_value, export_zip, report
 from deep_research.project import (
@@ -29,7 +30,7 @@ from deep_research.project import (
 
 from . import chrome as ui
 from . import reading, workspace
-from .research import FILTERS, filter_evidence, review_counts, search_view
+from .research import FILTERS, SORTS, filter_evidence, review_counts, search_view
 
 CELL_TONE = {"accept": "go", "edit": "edit", "hold": "wait", "reject": "stop", "pending": "todo"}
 
@@ -102,9 +103,13 @@ def workbench(project):
     if destination := st.session_state.pop("start_destination", None):
         st.session_state["wb_view"] = "문헌 모으기"
         st.session_state["wb_library_route"] = destination
-        st.session_state["wb_q"] = config["plan"]["question"]
+        st.session_state["wb_q"] = st.session_state.pop("start_query", "") or config["plan"]["question"]
+        st.session_state["wb_year"] = st.session_state.pop("start_year", 0)
     st.session_state.setdefault("wb_view", workspace.VIEWS[0] if runs else workspace.VIEWS[1])
     st.markdown(f'<div class="drk-work-question">{ui.h(config["plan"]["question"])}</div>', unsafe_allow_html=True)
+    if runs and st.session_state.get("wb_run") not in runs:
+        st.session_state["wb_run"] = runs[0]
+    workspace.progress_strip(project, st.session_state.get("wb_run") if runs else None)
     nav, settings = st.columns([4, 1])
     view = nav.segmented_control("작업 공간", [workspace.VIEWS[1], workspace.VIEWS[0], workspace.VIEWS[2]], key="wb_view", width="stretch",
                                  label_visibility="collapsed") or workspace.VIEWS[0]
@@ -330,6 +335,8 @@ def _detail(project, run_id, row, source, field_name, rows):
         with b:
             ui.badge(ui.REVIEW, row["review"]["status"])
         st.markdown(f"**{ui.md(field_name)}** · {ui.md(ui.short(source['title'], 60))}")
+        if (source.get("integrity") or {}).get("status") in integrity.FLAGGED:
+            ui.integrity_note(source["integrity"], "철회·정정 · ")
         st.markdown(f'<div class="drk-value">{ui.h(display_value(row) or "읽은 범위에서 찾지 못함")}</div>', unsafe_allow_html=True)
         if row["review"]["status"] == "edit":
             with st.expander("수정 전 AI 추출값"):
@@ -356,6 +363,15 @@ def _detail(project, run_id, row, source, field_name, rows):
             if status == "edit":
                 value = st.text_area("수정한 값 (수정 후 채택일 때)", value, height=90,
                                      help="원문에 맞게 고칩니다. AI의 원래 추출값도 보존됩니다.")
+            if status in {"accept", "edit"}:
+                marks = [None, *flow.COMPARISON]
+                comparison = st.radio("다른 문헌의 같은 항목과 비교하면 (선택)", marks,
+                                      index=marks.index(row["review"].get("comparison")), horizontal=True,
+                                      format_func=lambda k: "표시 안 함" if k is None else flow.COMPARISON[k],
+                                      help="같은 지표·단위 = 나란히 비교 가능 · 조건이 다름 = 대상·기간·방법이 달라 비교에 단서가 필요 · "
+                                           "비교 불가 = 다른 지표라 합치면 안 됨. 보고서에 쓰기의 근거 현황에 집계됩니다.")
+            else:
+                comparison = None
             note = st.text_input("이유 한 줄 (필수)", row["review"].get("note", ""),
                                  placeholder="예: 8쪽 발췌와 수치 일치, 앞뒤 문맥상 조건 누락 없음 / 단위가 빠져 보완",
                                  help="무엇과 대조했는지(쪽·표·문장)와 판단을 짧게 적습니다. 이 이유가 보고서·CSV의 근거 기록에 남습니다.")
@@ -375,7 +391,7 @@ def _detail(project, run_id, row, source, field_name, rows):
                     st.error("저장하려면 다음을 채우세요: " + " · ".join(missing))
                 else:
                     try:
-                        flow.review(project, run_id, row["id"], status, note, reviewer, value)
+                        flow.review(project, run_id, row["id"], status, note, reviewer, value, comparison)
                     except ValueError as exc:
                         st.error(str(exc))
                     else:
@@ -450,7 +466,7 @@ def _question_notice(project, config, key):
 
 
 def _search_popover(project):
-    from deep_research.providers import search_literature
+    from deep_research.providers import RATE_LIMIT_HINT, search_literature
     st.caption("학술 자료원에 검색어를 보냅니다. 내 PDF·노트는 전송하지 않습니다.")
     with st.form("wb_search_form"):
         query = st.text_input("검색어", key="wb_q", placeholder="연구 주제를 입력하세요 · 예: generative AI knowledge work productivity")
@@ -471,8 +487,11 @@ def _search_popover(project):
                 if not results:
                     st.info("검색 결과가 없습니다. 검색어를 줄이거나 연도 범위를 넓혀 보세요.")
                 log = read_json(project.root / "search-log.json")[-1]
+                if results and not log.get("errors"):
+                    st.rerun()  # the progress strip above counts this search too
                 if log.get("errors"):
-                    st.warning("일부 자료원에 연결하지 못했습니다: " + ", ".join(log["errors"]) + ". 나머지 결과를 표시합니다.")
+                    st.warning("일부 자료원에서 결과를 받지 못했습니다: " + ", ".join(f"{k} {v}" for k, v in log["errors"].items())
+                               + ". 나머지 결과를 표시합니다." + (" " + RATE_LIMIT_HINT if "429" in str(log["errors"]) else ""))
             except ValueError as exc:
                 st.error(str(exc))
     st.caption("OpenAlex · arXiv · Crossref에서 검색합니다. 관련도순은 각 자료원이 반환한 순서이며 자료원 간 통합 점수가 아닙니다.")
@@ -486,7 +505,8 @@ def search_results_panel(project):
         st.markdown(f"**검색 결과 {len(results)}건** · {ui.md(st.session_state.get('wb_results_query', ''))}")
         a, b, c = st.columns([2, 1, 1])
         query = a.text_input("결과 내 검색", placeholder="제목·저자·초록·DOI", key="wb_result_find")
-        order = b.selectbox("정렬", ["관련도순", "최신순", "피인용순"], key="wb_result_order")
+        order = b.selectbox("정렬", SORTS, key="wb_result_order",
+                            help="피인용 수는 얼마나 자주 인용됐는지일 뿐 품질·신뢰도 순위가 아닙니다.")
         oa = c.checkbox("오픈액세스만", key="wb_result_oa")
         visible = search_view(results, query, oa, order)
         st.caption(f"{len(visible)} / {len(results)}건 표시 · OA 표시는 공개 이용 가능 메타데이터이며 PDF 확보를 보장하지 않습니다.")
@@ -495,7 +515,7 @@ def search_results_panel(project):
             return
         # A new key for every ordered set prevents checkboxes moving to a different paper.
         signature = flow.fingerprint(visible)[:12]
-        records = [{"담기": False, "제목": r["title"], "저자": ", ".join(r.get("authors", [])[:3]),
+        records = [{"담기": False, "제목": ("[철회] " if r.get("retracted") else "") + r["title"], "저자": ", ".join(r.get("authors", [])[:3]),
                     "연도": r.get("year"), "학술지": r.get("venue", ""), "피인용": r.get("cited_by"),
                     "공개 원문": "OA" if r.get("pdf_url") or r.get("oa") else "확인 필요",
                     "자료원": ", ".join(r.get("providers", []))} for r in visible]
@@ -515,6 +535,8 @@ def search_results_panel(project):
             pick = st.selectbox("살펴볼 문헌", range(len(visible)), key="wb_result_pick_" + signature,
                                 format_func=lambda i: visible[i]["title"])
             cand = visible[pick]
+            if cand.get("retracted"):
+                st.error("OpenAlex가 철회된 문헌으로 표시합니다. 담더라도 근거로 쓰기 전에 철회 고지를 확인하세요.", icon=":material/block:")
             st.markdown(ui.md(cand.get("abstract") or "이 자료원에서 초록을 제공하지 않았습니다. 원문 링크에서 확인하세요."))
             link = ui.safe_url(cand.get("url") or ("https://doi.org/" + cand["doi"] if cand.get("doi") else ""))
             if link:

@@ -228,6 +228,23 @@ def header(title: str, lead: str, metrics: list[tuple] = ()):
         st.markdown('<div class="drk-chips">' + "".join(chips) + '</div>', unsafe_allow_html=True)
 
 
+def integrity_note(record, prefix=""):
+    """A retraction/correction check result where the person is looking. Flagged works are loud;
+    'no notice' stays a quiet caption because it is not a clearance."""
+    from deep_research import integrity
+    status = (record or {}).get("status")
+    line = prefix + integrity.explain(record)
+    links = integrity.notice_links(record)
+    if links:
+        line += " 고지: " + " · ".join(links)
+    if status == "retracted":
+        st.error(line, icon=":material/block:")
+    elif status in {"concern", "corrected"}:
+        st.warning(line, icon=":material/report:")
+    else:
+        st.caption(line)
+
+
 def empty(message: str, hint: str = ""):
     """Carbon empty-state rule: say why it is empty and name one next action."""
     with st.container(border=True):

@@ -198,9 +198,18 @@ def import_extraction(project, run_id, payload):
         return output
 
 
-def review(project, run_id, evidence_id, status, note, reviewer, edited_value=None):
+# How an adopted value sits next to the other papers' values for the same item. A person marks it;
+# no model guesses it, and it is never turned into a yes/no vote (cf. a consensus meter).
+COMPARISON = {"same": "같은 지표·단위", "conditions": "조건이 다름", "not_comparable": "비교 불가"}
+
+
+def review(project, run_id, evidence_id, status, note, reviewer, edited_value=None, comparison=None):
     if status not in {"accept", "edit", "hold", "reject"} or not reviewer.strip() or not note.strip():
         raise ValueError("검토 상태·검토자·판단 이유가 필요합니다.")
+    if comparison is not None and comparison not in COMPARISON:
+        raise ValueError("비교 표시는 " + " · ".join(COMPARISON.values()) + " 중 하나입니다.")
+    if status not in {"accept", "edit"}:
+        comparison = None
     with project.lock:
         folder = project.run_dir(run_id)
         run = manifest(project, run_id)
@@ -220,7 +229,8 @@ def review(project, run_id, evidence_id, status, note, reviewer, edited_value=No
                              "AI 값을 그대로 쓰려면 수정한 값 칸을 비우거나 AI 값으로 되돌리세요.")
         previous = row["review"]
         row["review"] = {"status": status, "note": note, "reviewer": reviewer,
-                         "edited_value": edited_value if status == "edit" else None, "at": now()}
+                         "edited_value": edited_value if status == "edit" else None,
+                         "comparison": comparison, "at": now()}
         history = read_json(folder / "reviews.json")
         history.append({"evidence_id": evidence_id, "previous": previous, **row["review"]})
         run["review_revision"] += 1

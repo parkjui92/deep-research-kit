@@ -73,6 +73,9 @@ def crossref_search(project, query, limit=10):
 # Metadata-only candidates stay in collection.json so the search trail is auditable.
 # ---------------------------------------------------------------------------
 OPENALEX = "https://api.openalex.org/works"
+RATE_LIMIT_HINT = ("OpenAlex는 키 없이 쓰면 같은 네트워크의 사용자가 하루 무료 한도를 나눠 씁니다. "
+                   "자료원에서 Crossref·arXiv를 고르거나, 내일 다시 하거나, openalex.org에서 무료 키를 받아 "
+                   "환경변수 OPENALEX_API_KEY에 넣고 앱을 다시 시작하세요.")
 UA = {"User-Agent": "deep-research-kit/0.2 (mailto:drk@example.org)"}
 
 
@@ -83,14 +86,21 @@ def _authors_openalex(work):
 
 def _candidate(**kw):
     base = {"provider": "", "title": "", "authors": [], "year": None, "venue": "", "doi": "", "url": "",
-            "pdf_url": "", "pdf_urls": [], "oa": False, "cited_by": None, "abstract": "", "external_id": ""}
+            "pdf_url": "", "pdf_urls": [], "oa": False, "cited_by": None, "abstract": "", "external_id": "", "retracted": None}
     base.update(kw)
     base["doi"] = (base["doi"] or "").replace("https://doi.org/", "").lower()
     return base
 
 
+def openalex_key_params():
+    """OpenAlex's free personal key (env OPENALEX_API_KEY) gives its own daily budget. Without one,
+    every user on the same network shares a small budget and searches start failing with HTTP 429."""
+    key = os.environ.get("OPENALEX_API_KEY", "").strip()
+    return {"api_key": key} if key else {}
+
+
 def openalex_search(query, limit=20, year_from=None):
-    params = {"search": query, "per-page": max(1, min(int(limit), 50)), "mailto": "drk@example.org"}
+    params = {"search": query, "per-page": max(1, min(int(limit), 50)), "mailto": "drk@example.org", **openalex_key_params()}
     if year_from:
         params["filter"] = f"publication_year:>{int(year_from) - 1}"
     response = httpx.get(OPENALEX, params=params, headers=UA, timeout=30)
@@ -110,7 +120,8 @@ def openalex_search(query, limit=20, year_from=None):
                               doi=w.get("doi") or "", url=(w.get("doi") or w.get("id") or ""),
                               pdf_url=best.get("pdf_url") or "", oa=bool((w.get("open_access") or {}).get("is_oa")),
                               pdf_urls=[x["pdf_url"] for x in w.get("locations") or [] if (x or {}).get("pdf_url") and x.get("is_oa")],
-                              cited_by=w.get("cited_by_count"), abstract=abstract, external_id=w.get("id", "")))
+                              cited_by=w.get("cited_by_count"), abstract=abstract, external_id=w.get("id", ""),
+                              retracted=bool(w.get("is_retracted"))))
     return payload.get("meta", {}).get("count", len(out)), out
 
 
@@ -204,6 +215,9 @@ def search_literature(project, query, providers=("OpenAlex",), limit=20, year_fr
     for name in providers:
         try:
             total, items = PROVIDERS[name](query, limit, year_from=year_from)
+        except httpx.HTTPStatusError as exc:
+            errors[name] = "한도 초과(HTTP 429)" if exc.response.status_code == 429 else f"HTTP {exc.response.status_code}"
+            continue
         except (httpx.HTTPError, ValueError, KeyError) as exc:
             errors[name] = type(exc).__name__
             continue
@@ -220,6 +234,7 @@ def search_literature(project, query, providers=("OpenAlex",), limit=20, year_fr
             old["abstract"] = old["abstract"] or item["abstract"]
             old["year"] = old["year"] or item["year"]
             old["doi"] = old["doi"] or item["doi"]
+            old["retracted"] = old.get("retracted") or item.get("retracted")
             old["providers"] = sorted(set(old["providers"] + [name]))
             if item["doi"] and item["doi"] not in old["merged_dois"]:
                 old["merged_dois"].append(item["doi"])
@@ -231,7 +246,10 @@ def search_literature(project, query, providers=("OpenAlex",), limit=20, year_fr
                         "items": [{"title": r["title"], "doi": r["doi"], "url": r["url"], "year": r["year"],
                                    "providers": r["providers"], "merged_dois": r["merged_dois"]} for r in results]})
     if not results and errors:
-        raise ValueError("검색 서버에 연결하지 못했습니다(" + ", ".join(errors) + "). PDF 직접 등록으로 계속할 수 있습니다.")
+        detail = ", ".join(f"{k} {v}" for k, v in errors.items())
+        if "OpenAlex" in errors and "429" in errors["OpenAlex"]:
+            raise ValueError(f"검색하지 못했습니다({detail}). " + RATE_LIMIT_HINT)
+        raise ValueError(f"검색 서버에 연결하지 못했습니다({detail}). PDF 직접 등록으로 계속할 수 있습니다.")
     return results
 
 
@@ -256,13 +274,16 @@ def collect(project, candidate, client=None):
     the person to download it. Every try is kept on the record."""
     from .acquire import find_pdf
     data, attempts = find_pdf(candidate, client)
+    from .integrity import from_search
     record = {k: candidate.get(k) for k in ("title", "authors", "year", "venue", "doi", "url", "pdf_url", "pdf_urls",
-                                            "oa", "provider", "external_id")}
+                                            "oa", "provider", "external_id", "retracted", "abstract")}
     record["attempts"] = attempts
     if data:
         source_id = project.add_pdf(data, (candidate["doi"].replace("/", "_") or candidate["title"][:40]) + ".pdf",
                                     candidate["title"], candidate["doi"], candidate["url"])
         project.set_bibliography(source_id, candidate.get("authors") or [], candidate.get("year"), candidate.get("venue") or "")
+        if flag := (candidate.get("integrity") or from_search(candidate)):
+            project.set_integrity(source_id, flag)
         record.update(status="added", source_id=source_id)
     else:
         record.update(status="pdf_missing", source_id=None)

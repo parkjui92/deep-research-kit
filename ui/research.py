@@ -75,6 +75,48 @@ def search_view(results, query="", oa_only=False, order="관련도순"):
                         for t in terms)]
     if order == "최신순":
         filtered.sort(key=lambda r: r.get("year") or 0, reverse=True)
-    elif order == "피인용순":
+    elif order in {"피인용순", "피인용 많은 순"}:
         filtered.sort(key=lambda r: r.get("cited_by") or 0, reverse=True)
     return filtered
+
+
+SORTS = ["관련도순", "최신순", "피인용 많은 순"]
+
+
+def comparability(rows, fields):
+    """Per item, how the adopted values sit side by side, as the reviewers marked them.
+    Only adopted cells count; nothing is merged into a single verdict."""
+    from deep_research.workflow import COMPARISON
+    out = []
+    for field in fields:
+        kept = [r for r in rows if r["field_id"] == field["id"] and r["review"]["status"] in {"accept", "edit"}]
+        marks = [r["review"].get("comparison") for r in kept]
+        out.append({"항목": field["name"], "채택": len(kept),
+                    **{label: marks.count(key) for key, label in COMPARISON.items()},
+                    "표시 안 함": marks.count(None)})
+    return out
+
+
+def query_terms(queries):
+    """Words from the searches that found a candidate. Short words and search syntax are dropped."""
+    import re
+    terms = []
+    for query in queries or []:
+        for word in re.findall(r"[\w가-힣-]+", query):
+            if word.upper() in {"AND", "OR", "NOT"} or len(word) < (2 if re.search("[가-힣]", word) else 3):
+                continue
+            if word.casefold() not in {t.casefold() for t in terms}:
+                terms.append(word)
+    return terms
+
+
+def highlight(text, terms):
+    """HTML-escaped text with the given words marked. Marks show where search words appear,
+    not why a paper is relevant."""
+    import html
+    import re
+    escaped = html.escape(text or "")
+    if not terms:
+        return escaped
+    pattern = re.compile("(" + "|".join(re.escape(html.escape(t)) for t in sorted(terms, key=len, reverse=True)) + ")", re.I)
+    return pattern.sub(r'<mark class="drk-term">\1</mark>', escaped)

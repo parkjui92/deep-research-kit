@@ -26,14 +26,30 @@ def start_page(projects, make_example):
         with st.form("start_research"):
             question = st.text_input("이번에 알아볼 질문", placeholder="예: 생성형 AI가 지식업무의 생산성에 미치는 영향은?")
             title = st.text_input("조사 제목 (선택)", placeholder="비워 두면 질문을 제목으로 사용합니다.")
+            st.caption("질문이 넓으면 엉뚱한 문헌이 많이 섞입니다. 아는 만큼만 좁혀 주세요. 모두 비워도 됩니다.")
+            a, b = st.columns(2)
+            target = a.text_input("대상·맥락 (선택)", placeholder="예: 공공기관 사무직 / 국내 중소기업")
+            field = b.text_input("분야·학문 (선택)", placeholder="예: 행정학 / 노동경제학")
+            a, b = st.columns([3, 1])
+            keywords = a.text_input("검색어 (선택 · 영문 권장)", placeholder="예: generative AI knowledge work productivity",
+                                    help="학술 자료원은 영문 논문이 대부분입니다. 비우면 질문을 그대로 검색어로 넣습니다.")
+            since = b.number_input("발행연도 이후 (0=전체)", 0, 2100, 0)
             if st.form_submit_button("문헌 검색 시작" if path == "문헌 검색" else "PDF 가져오기로 이동", type="primary"):
                 if not question.strip():
                     st.error("이번 조사 질문을 입력하세요.")
                 else:
                     name = "research-" + uuid.uuid4().hex[:10]
-                    Project(projects / name).initialize(title.strip() or question.strip()[:70], question=question)
+                    project = Project(projects / name).initialize(title.strip() or question.strip()[:70], question=question)
+                    scope = " · ".join(f"{label}: {value.strip()}" for label, value in
+                                       (("대상·맥락", target), ("분야", field), ("발행연도", f"{since}년 이후" if since else ""))
+                                       if value.strip())
+                    if scope:
+                        config = project.config()
+                        project.save_config({**config["plan"], "scope": scope}, config["fields"], config["synthesis_rules"])
                     st.session_state["open_project"] = name
                     st.session_state["start_destination"] = path
+                    st.session_state["start_query"] = keywords.strip()
+                    st.session_state["start_year"] = int(since or 0)
                     st.session_state["mode"] = "작업 화면"
                     st.rerun()
     st.markdown("**문헌 모으기 → 근거 비교 → 보고서에 쓰기**")

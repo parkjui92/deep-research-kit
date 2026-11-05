@@ -349,7 +349,8 @@ class Project:
             live = self.source(source["id"])
         except ValueError:
             return source
-        return {**source, "bib": live.get("bib") or source.get("bib") or {}}
+        return {**source, "bib": live.get("bib") or source.get("bib") or {},
+                "integrity": live.get("integrity") or source.get("integrity")}
 
     def collection(self):
         path = self.root / "collection.json"
@@ -388,6 +389,26 @@ class Project:
                 raise ValueError("자료 ID를 찾을 수 없습니다.")
             source["bib"] = {"authors": [str(a) for a in authors or []], "year": int(year) if str(year or "").isdigit() else year, "venue": venue or ""}
             write_json(self.root / "catalog.json", catalog)
+
+    def set_integrity(self, source_id, record):
+        """Retraction/correction check result for a registered source (see integrity.py)."""
+        with self.lock:
+            catalog = self.catalog()
+            source = next((s for s in catalog if s["id"] == source_id), None)
+            if source is None:
+                raise ValueError("자료 ID를 찾을 수 없습니다.")
+            source["integrity"] = record
+            write_json(self.root / "catalog.json", catalog)
+
+    def set_candidate_integrity(self, key, record):
+        from .notebook import candidate_key
+        with self.lock:
+            items = self.collection()
+            item = next((i for i in items if candidate_key(i) == key), None)
+            if item is None:
+                raise ValueError("후보를 찾을 수 없습니다.")
+            item["integrity"] = record
+            write_json(self.root / "collection.json", items)
 
     def log_search(self, record):
         with self.lock:
