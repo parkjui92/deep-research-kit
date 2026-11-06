@@ -1,0 +1,380 @@
+[
+  {
+    "id": "intro",
+    "chapter": "소개",
+    "seconds": 6,
+    "caption": "검색부터 원문 검토, 노트와 보고서까지 실제 사용 흐름을 살펴봅니다.\n앱 조작 전후 화면을 편집했으며, 한국어 자막으로 설명합니다.",
+    "start_seconds": 0
+  },
+  {
+    "id": "01_start",
+    "path": "assets/01_start.jpg",
+    "chapter": "01 · 내 질문에서 시작",
+    "caption": "논문을 모으는 데서 끝내지 않고,\n원문 근거와 내 생각을 보고서까지 연결합니다.",
+    "seconds": 9,
+    "target": {
+      "height": 40,
+      "width": 418,
+      "x": 348,
+      "y": 413.5390625
+    },
+    "start_seconds": 6
+  },
+  {
+    "id": "02_question",
+    "path": "assets/02_question.jpg",
+    "chapter": "01 · 내 질문에서 시작",
+    "caption": "조사 질문과 검색어를 적습니다.\n이미 PDF가 있다면 ‘PDF에서 시작’으로 바로 가져올 수 있습니다.",
+    "seconds": 10,
+    "target": {
+      "height": 40,
+      "width": 105.625,
+      "x": 348,
+      "y": 483.28125
+    },
+    "start_seconds": 15
+  },
+  {
+    "id": "03_search",
+    "path": "assets/03_search.jpg",
+    "chapter": "02 · 문헌 찾고 후보로 남기기",
+    "caption": "OpenAlex·arXiv·Crossref에서 문헌을 찾습니다.\n자료원, 발행연도, 검색 건수를 정해 탐색 범위를 좁힙니다.",
+    "seconds": 9,
+    "target": {
+      "height": 40,
+      "width": 101.9140625,
+      "x": 364,
+      "y": 489.59375
+    },
+    "start_seconds": 25
+  },
+  {
+    "id": "04b_results",
+    "path": "assets/04b_results.jpg",
+    "chapter": "02 · 문헌 찾고 후보로 남기기",
+    "caption": "관심 있는 문헌 한 편을 골라 ‘후보함에 담기’를 누릅니다.\n나중에 읽을 이유까지 남기면, 다시 찾고 선별하기 쉬워집니다.",
+    "seconds": 9,
+    "target": {
+      "height": 40,
+      "width": 181.5390625,
+      "x": 348,
+      "y": 339.984375
+    },
+    "start_seconds": 34
+  },
+  {
+    "id": "05_reason",
+    "path": "assets/05_reason.jpg",
+    "chapter": "02 · 문헌 찾고 후보로 남기기",
+    "caption": "왜 읽으려는지, 무엇을 확인할지 메모해 둡니다.\n읽기 우선순위는 문헌의 포함·제외 판단과 별도로 관리합니다.",
+    "seconds": 10,
+    "target": {
+      "height": 40,
+      "width": 105.625,
+      "x": 348,
+      "y": 564.8046875
+    },
+    "start_seconds": 43
+  },
+  {
+    "id": "06_pdf_collect",
+    "path": "assets/06_pdf_collect.jpg",
+    "chapter": "03 · 원문 확보하고 읽기",
+    "caption": "공개 원문이 있으면 ‘공개 PDF 찾아 등록’으로 가져옵니다.\n확보하지 못한 문헌은 내 PDF에서 파일을 직접 연결할 수 있습니다.",
+    "seconds": 10,
+    "target": {
+      "height": 40,
+      "width": 450,
+      "x": 798,
+      "y": 631.8046875
+    },
+    "start_seconds": 53
+  },
+  {
+    "id": "07_local_search",
+    "path": "assets/07_local_search.jpg",
+    "chapter": "03 · 원문 확보하고 읽기",
+    "caption": "내 PDF 전체에서 필요한 단어를 찾아보세요.\n로컬 원문 검색은 AI 없이 작동하며 검색어를 외부로 보내지 않습니다.",
+    "seconds": 10,
+    "target": {
+      "height": 40,
+      "width": 147.09375,
+      "x": 348,
+      "y": 328.7890625
+    },
+    "start_seconds": 63
+  },
+  {
+    "id": "08_passage",
+    "path": "assets/08_passage.jpg",
+    "chapter": "03 · 원문 확보하고 읽기",
+    "caption": "검색된 구간을 고르면 원문과 해당 PDF 쪽을 함께 볼 수 있습니다.\n숫자를 인용하기 전에 앞뒤 조건과 맥락을 확인할 때 유용합니다.",
+    "seconds": 10,
+    "target": {
+      "height": 38,
+      "width": 882,
+      "x": 333,
+      "y": 340.8828125
+    },
+    "start_seconds": 73
+  },
+  {
+    "id": "09_note",
+    "path": "assets/09_note.jpg",
+    "chapter": "04 · 발췌와 내 생각을 분리하기",
+    "caption": "원문 발췌와 내 메모를 구분해 저장합니다.\n문헌·구간·PDF 쪽수가 함께 남아, 나중에 인용 근거를 되짚을 수 있습니다.",
+    "seconds": 11,
+    "target": {
+      "height": 40,
+      "width": 105.671875,
+      "x": 348,
+      "y": 455.7578125
+    },
+    "start_seconds": 83
+  },
+  {
+    "id": "10_note_to_report",
+    "path": "assets/10_note_to_report.jpg",
+    "chapter": "04 · 발췌와 내 생각을 분리하기",
+    "caption": "저장한 노트에서 곧바로 보고서 작성으로 이어집니다.\n읽은 내용을 별도 문서에 다시 옮기는 일을 줄여줍니다.",
+    "seconds": 9,
+    "target": {
+      "height": 40,
+      "width": 169.640625,
+      "x": 332,
+      "y": 571.2578125
+    },
+    "start_seconds": 94
+  },
+  {
+    "id": "11_draft",
+    "path": "assets/11_draft.jpg",
+    "chapter": "05 · 노트로 내 보고서 쓰기",
+    "caption": "논점 제목, 핵심 주장, 내가 쓸 문단을 직접 작성합니다.\n연결한 노트의 원문과 메모를 옆에서 확인하며 근거와 해석을 구분합니다.",
+    "seconds": 11,
+    "target": {
+      "height": 40,
+      "width": 105.671875,
+      "x": 332,
+      "y": 359.0859375
+    },
+    "start_seconds": 103
+  },
+  {
+    "id": "12_source_back",
+    "path": "assets/12_source_back.jpg",
+    "chapter": "05 · 노트로 내 보고서 쓰기",
+    "caption": "문장을 쓰다가 근거가 궁금하면 ‘원문에서 확인’을 누르세요.\n보고서와 원문을 왕복해도 작성 중인 문단을 이어갈 수 있습니다.",
+    "seconds": 9,
+    "target": {
+      "height": 40,
+      "width": 302.40625,
+      "x": 929.59375,
+      "y": 339.8828125
+    },
+    "start_seconds": 114
+  },
+  {
+    "id": "13_return",
+    "path": "assets/13_return.jpg",
+    "chapter": "05 · 노트로 내 보고서 쓰기",
+    "caption": "발췌가 있는 원문 구간과 PDF를 확인한 뒤,\n‘보고서 초안으로 돌아가기’로 다시 집필을 이어갑니다.",
+    "seconds": 8,
+    "target": {
+      "height": 40,
+      "width": 166.125,
+      "x": 332,
+      "y": 143.046875
+    },
+    "start_seconds": 123
+  },
+  {
+    "id": "14_report_preview",
+    "path": "assets/14_report_preview.jpg",
+    "chapter": "05 · 노트로 내 보고서 쓰기",
+    "caption": "전체 초안에서 문단과 연결한 출처 주석을 함께 확인합니다.\nMarkdown으로 내려받아 다음 집필 작업에 사용할 수 있습니다.",
+    "seconds": 10,
+    "target": {
+      "height": 40,
+      "width": 166.4921875,
+      "x": 332,
+      "y": 284.7890625
+    },
+    "start_seconds": 131
+  },
+  {
+    "id": "15_footnotes",
+    "path": "assets/15_footnotes.jpg",
+    "chapter": "05 · 노트로 내 보고서 쓰기",
+    "caption": "출처 주석에는 문헌 정보, 원문 발췌, PDF 쪽수와 노트 버전이 남습니다.\n“이 문장을 어디서 가져왔는가”를 다시 확인할 수 있습니다.",
+    "seconds": 10,
+    "target": {
+      "height": 19,
+      "width": 16,
+      "x": 699.734375,
+      "y": 649.59375
+    },
+    "start_seconds": 141
+  },
+  {
+    "id": "16_exports",
+    "path": "assets/16_exports.jpg",
+    "chapter": "06 · 정리한 자료 가져가기",
+    "caption": "독서 노트는 Markdown, 참고문헌은 RIS로 내보냅니다.\n자료 ZIP에는 후보·노트·보고서 초안·검색 이력을 함께 담습니다.",
+    "seconds": 11,
+    "target": {
+      "height": 40,
+      "width": 916,
+      "x": 332,
+      "y": 564.6484375
+    },
+    "start_seconds": 151
+  },
+  {
+    "id": "18_ai_options",
+    "path": "assets/18_ai_options.jpg",
+    "chapter": "07 · 여러 문헌을 같은 항목으로 비교",
+    "caption": "AI 비교표를 만들 때는 Claude Code·웹 AI·API 경로를 선택할 수 있습니다.\n여기서는 공개 논문 3편의 예제 응답을 사용했습니다. 유료 추론은 실행하지 않았습니다.",
+    "seconds": 11,
+    "target": null,
+    "start_seconds": 162
+  },
+  {
+    "id": "19_web_ai",
+    "path": "assets/19_web_ai.jpg",
+    "chapter": "07 · 여러 문헌을 같은 항목으로 비교",
+    "caption": "쓰던 웹 AI에 요청문을 넣고, 받은 응답을 가져오는 방식도 있습니다.\n읽을 쪽수와 비교 항목을 먼저 정하고, 서비스별 이용 조건을 확인하세요.",
+    "seconds": 9,
+    "target": null,
+    "start_seconds": 173
+  },
+  {
+    "id": "17_comparison",
+    "path": "assets/17_comparison.jpg",
+    "chapter": "07 · 여러 문헌을 같은 항목으로 비교",
+    "caption": "대상·연구 방법·주요 결과·한계를 같은 기준으로 나란히 읽습니다.\n주요 결과의 한 칸을 눌러, 이 수치가 나온 원문 근거를 확인해 보겠습니다.",
+    "seconds": 11,
+    "target": {
+      "height": 112,
+      "width": 163.8828125,
+      "x": 903.2421875,
+      "y": 303.9453125
+    },
+    "start_seconds": 182
+  },
+  {
+    "id": "20_review",
+    "path": "assets/20_review.jpg",
+    "chapter": "08 · AI 결과를 원문과 대조하기",
+    "caption": "비교표의 한 칸을 열면 추출값·발췌·앞뒤 문맥과 PDF가 함께 나옵니다.\n주황 표시는 원문 위치를 찾았다는 뜻이며, 내용의 타당성은 직접 판단합니다.",
+    "seconds": 12,
+    "target": null,
+    "start_seconds": 193
+  },
+  {
+    "id": "21_pdf_highlight",
+    "path": "assets/21_pdf_highlight.jpg",
+    "chapter": "08 · AI 결과를 원문과 대조하기",
+    "caption": "발췌 위치로 이동해 실제 PDF의 문장을 직접 읽습니다.\n결과 수치뿐 아니라 대상·측정 방법·적용 범위를 함께 확인하세요.",
+    "seconds": 10,
+    "target": null,
+    "start_seconds": 205
+  },
+  {
+    "id": "22_review_save",
+    "path": "assets/22_review_save.jpg",
+    "chapter": "08 · AI 결과를 원문과 대조하기",
+    "caption": "채택·수정 후 채택·보류·제외 중 판단을 고르고 이유를 남깁니다.\n예시에서는 추가 검토가 필요하다는 이유로 ‘보류’를 기록합니다.",
+    "seconds": 11,
+    "target": {
+      "height": 40,
+      "width": 343.109375,
+      "x": 348,
+      "y": 559.765625
+    },
+    "start_seconds": 215
+  },
+  {
+    "id": "23_next",
+    "path": "assets/23_next.jpg",
+    "chapter": "08 · AI 결과를 원문과 대조하기",
+    "caption": "저장하면 다음 미검토 근거로 넘어갑니다.\n누가 어떤 이유로 판단했는지 기록해 두면 검토를 이어가기 쉽습니다.",
+    "seconds": 9,
+    "target": {
+      "height": 40,
+      "width": 126.3125,
+      "x": 332,
+      "y": 282.3359375
+    },
+    "start_seconds": 226
+  },
+  {
+    "id": "24_filter",
+    "path": "assets/24_filter.jpg",
+    "chapter": "09 · 남은 검토에 집중하기",
+    "caption": "검토 상태 필터로 보류한 근거만 다시 모아볼 수 있습니다.\n문헌이 많아져도 다음에 확인할 대상을 놓치지 않게 도와줍니다.",
+    "seconds": 10,
+    "target": {
+      "height": 13,
+      "width": 13,
+      "x": 331,
+      "y": 353.375
+    },
+    "start_seconds": 235
+  },
+  {
+    "id": "25_list",
+    "path": "assets/25_list.jpg",
+    "chapter": "09 · 남은 검토에 집중하기",
+    "caption": "넓은 비교표가 불편하면 문헌별 세로 목록으로 바꿉니다.\n한 편씩 읽거나 좁은 화면에서 검토할 때 유용합니다.",
+    "seconds": 9,
+    "target": null,
+    "start_seconds": 245
+  },
+  {
+    "id": "26_evidence_export",
+    "path": "assets/26_evidence_export.jpg",
+    "chapter": "10 · 비교표와 검토 이력 가져가기",
+    "caption": "결과 ZIP에는 비교표 CSV와 근거별 검토 기록이 들어갑니다.\n원문 쪽수·판단 이유를 보존하며 Word·한글·엑셀 작업으로 이어갈 수 있습니다.",
+    "seconds": 11,
+    "target": {
+      "height": 40,
+      "width": 916,
+      "x": 332,
+      "y": 474.1875
+    },
+    "start_seconds": 254
+  },
+  {
+    "id": "27_import",
+    "path": "assets/27_import.jpg",
+    "chapter": "11 · 이미 모아 둔 자료도 활용",
+    "caption": "PDF 여러 편을 가져오거나, Zotero·EndNote의 RIS·BibTeX 목록을 불러옵니다.\n새 검색을 시작하지 않고 기존 문헌 모음에서 출발할 수 있습니다.",
+    "seconds": 10,
+    "target": null,
+    "start_seconds": 265
+  },
+  {
+    "id": "28_local",
+    "path": "assets/28_local.jpg",
+    "chapter": "12 · AI 없이도 가능한 작업",
+    "caption": "PDF·노트·검토 기록은 앱이 실행되는 컴퓨터에 저장됩니다.\n검색은 검색어를, 외부 AI 실행은 지정한 원문을 해당 서비스에 전달합니다.",
+    "seconds": 11,
+    "target": {
+      "height": 40,
+      "width": 260,
+      "x": 20,
+      "y": 124.625
+    },
+    "start_seconds": 275
+  },
+  {
+    "id": "29_finish",
+    "path": "assets/29_finish.jpg",
+    "chapter": "내 연구 질문 하나로 시작하세요",
+    "caption": "문헌 찾기 → 원문 메모 → 근거 확인 → 보고서 작성으로 이어가세요.\n예시는 필요할 때 선택하고, 내 연구는 질문 또는 PDF에서 시작합니다.",
+    "seconds": 11,
+    "target": null,
+    "start_seconds": 286
+  }
+]

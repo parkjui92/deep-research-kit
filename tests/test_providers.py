@@ -140,6 +140,8 @@ def test_child_env_drops_parent_session_but_keeps_user_settings(monkeypatch):
 def test_status_check_does_not_call_the_model(monkeypatch):
     calls = _fake_cli(monkeypatch, lambda args: (0, "2.1.309 (Claude Code)"))
     assert providers.claude_code_status() == {"available": True, "reason": ""}
+    assert not calls  # rendering a collapsed AI section must not start a subprocess
+    assert providers.claude_code_status(probe=True) == {"available": True, "reason": ""}
     assert calls[0][0][1:] == ["--version"] and "-p" not in calls[0][0]
 
 
@@ -261,7 +263,7 @@ def test_cli_is_called_with_utf8_and_survives_missing_streams(tmp_path, monkeypa
     with pytest.raises(ValueError, match="Claude Code 실행 실패"):
         providers.run_claude_code(p, run)
     assert seen["encoding"] == "utf-8" and seen["errors"] == "replace"
-    assert providers.claude_code_status()["available"] is False
+    assert providers.claude_code_status(probe=True)["available"] is False
 
 
 def test_synthesis_run_that_saved_nothing_is_a_failure(tmp_path, monkeypatch):
@@ -345,3 +347,24 @@ def test_search_merge_keeps_different_works_apart(tmp_path, monkeypatch):
     same = [r for r in results if r["title"] == "인공지능과 생산성"]
     assert len(same) == 1 and same[0]["providers"] == ["Crossref", "OpenAlex"] and same[0]["pdf_url"]
     assert read_json(p.root / "search-log.json")[-1]["returned"] == len(results) == 5
+
+
+def test_workbench_initial_render_never_launches_ai_or_a_status_subprocess(tmp_path, monkeypatch):
+    import shutil
+
+    from streamlit.testing.v1 import AppTest
+    from test_ui import _workbench_script
+
+    p, run = _extracted_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/claude")
+    calls = []
+    def unexpected(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("Initial render started a subprocess or external request")
+    monkeypatch.setattr(providers, "_cli", unexpected)
+    monkeypatch.setattr(httpx, "get", unexpected)
+    monkeypatch.setattr(httpx, "post", unexpected)
+    app = AppTest.from_function(_workbench_script, args=(str(p.root),)).run(timeout=30)
+    assert not app.exception and not calls
+    assert app.session_state["cc_status"]["available"]
+    assert app.session_state["drk_claude_ready"]

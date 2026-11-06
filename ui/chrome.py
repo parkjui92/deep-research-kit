@@ -6,6 +6,7 @@ a review state looks the same in the sidebar, the tables and the evidence card.
 from __future__ import annotations
 
 import html
+import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -119,9 +120,30 @@ def local_time(iso: str) -> str:
         return iso[:16].replace("T", " ")
 
 
-def scroll_top():
+def scroll_top(*, focus_main=False):
     """Streamlit keeps the scroll position across pages; a new stage should start at its title."""
-    components.html("<script>const m=parent.document.querySelector('[data-testid=\"stMain\"]');if(m){m.scrollTo(0,0);}</script>", height=0)
+    focus_after_render('[data-testid="stMain"] h1' if focus_main else None, top=True)
+
+
+def focus_after_render(selector, *, top=False):
+    """Move to newly opened content once, without interrupting later typing or navigation."""
+    serial = st.session_state.get("drk_focus_serial", 0) + 1
+    st.session_state["drk_focus_serial"] = serial
+    focus = ("const t=d.querySelector(" + json.dumps(selector) + ");if(!t)return;"
+             "if(t.matches('h1,h2,h3,h4,h5,h6'))t.tabIndex=-1;t.focus({preventScroll:true});"
+             + ("" if top else "t.scrollIntoView({block:'nearest',behavior:'instant'});") if selector else "")
+    # A new srcdoc is required even on consecutive transitions. Wait for Streamlit's
+    # render to finish so its own restoration cannot move focus back to a removed button.
+    components.html("<script>/*" + str(serial) + "*/if(frameElement){frameElement.tabIndex=-1;frameElement.setAttribute('aria-hidden','true');}const d=parent.document;"
+                    "const a=d.querySelector('[data-testid=\"stApp\"]');"
+                    "const m=d.querySelector('[data-testid=\"stMain\"]');"
+                    "let done=false;const stop=()=>{done=true;o.disconnect();d.removeEventListener('pointerdown',stop);d.removeEventListener('keydown',stop);};"
+                    "const go=()=>{if(done||!m||a?.getAttribute('data-test-script-state')==='running')return;"
+                    "requestAnimationFrame(()=>requestAnimationFrame(()=>{if(done)return;"
+                    + focus + ("m.scrollTo(0,0);" if top else "") + "stop();}));};"
+                    "const o=new MutationObserver(go);if(a)o.observe(a,{attributes:true,attributeFilter:['data-test-script-state']});"
+                    "d.addEventListener('pointerdown',stop,{once:true});d.addEventListener('keydown',stop,{once:true});"
+                    "go();setTimeout(stop,5000);</script>", height=0)
 
 
 def go_to(stage: str):
@@ -356,8 +378,19 @@ def show_pdf(project, source_id, locators=None, page=1, identity="source", capti
     data = _pdf_bytes(str(path), info.st_size, info.st_mtime_ns)
     view = pdf_view(locators, focus, page)
     key = flow.fingerprint([source_id, identity, view])[:20]
-    zoom = st.slider("원문 확대", 0.8, 2.5, 1.0, 0.1, key="zoom-" + source_id)
+    fit = st.checkbox("화면 너비에 맞춤", value=True, key="pdf-fit-" + source_id)
+    zoom = st.slider("원문 확대", 0.8, 2.5, 1.0, 0.1, key="zoom-" + source_id, disabled=fit)
+    auto_scroll = st.checkbox("발췌 위치로 자동 이동", key="pdf-auto-scroll-" + source_id,
+                             help="켜면 PDF의 발췌 위치로 화면이 이동합니다. 끄면 현재 검토 위치와 키보드 초점을 유지합니다.")
+    pages = view["pages"]
+    if not auto_scroll:
+        # Show the selected passage's pages directly; the embedded viewer's scrollIntoView
+        # otherwise moves the outer page as well and can hide the review form on mobile.
+        picked = locators[focus] if locators and 0 <= focus < len(locators) else None
+        pages = sorted({b["page"] for b in (picked or {}).get("boxes", [])}
+                       | {(picked or {}).get("page") or page})
     boxes = [{**box, "color": "#F59E0B"} for box in view["boxes"]]
-    pdf_viewer(data, height=680, annotations=boxes, render_text=True, pages_to_render=view["pages"],
-               zoom_level=zoom, annotation_outline_size=2, key="pdf-" + key, **view["options"])
+    pdf_viewer(data, height=680, annotations=[b for b in boxes if b["page"] in pages], render_text=True, pages_to_render=pages,
+               zoom_level="auto" if fit else zoom, annotation_outline_size=2, key="pdf-" + key,
+               scroll_behavior="instant", **(view["options"] if auto_scroll else {}))
     st.caption(caption or "실제 원본 PDF · 쪽수는 파일의 첫 페이지부터 셉니다. 주황 테두리는 발췌 문자열의 위치이며, 뜻을 뒷받침하는지는 사람이 읽고 판단합니다.")

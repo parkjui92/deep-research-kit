@@ -1,0 +1,160 @@
+[
+  {
+    "id": "01_start",
+    "path": "assets/01_start.jpg",
+    "chapter": "90초 빠른 시작 · 문헌 한 편에서 보고서까지",
+    "caption": "문헌 한 편에서 보고서 한 문단까지 따라 해 보세요.\n조사 질문 또는 이미 가진 PDF로 시작합니다.",
+    "seconds": 6,
+    "target": {
+      "height": 40,
+      "width": 418,
+      "x": 348,
+      "y": 413.5390625
+    },
+    "start_seconds": 0
+  },
+  {
+    "id": "02_question",
+    "path": "assets/02_question.jpg",
+    "chapter": "90초 빠른 시작 · 문헌 한 편에서 보고서까지",
+    "caption": "알아볼 질문과 검색어를 적습니다.\n예: AI 도구는 숙련 개발자의 작업 시간을 줄여줄까?",
+    "seconds": 7,
+    "target": {
+      "height": 40,
+      "width": 105.625,
+      "x": 348,
+      "y": 483.28125
+    },
+    "start_seconds": 6
+  },
+  {
+    "id": "04b_results",
+    "path": "assets/04b_results.jpg",
+    "chapter": "90초 빠른 시작 · 문헌 한 편에서 보고서까지",
+    "caption": "검색 결과에서 관심 있는 논문을 후보함에 담습니다.\n다시 읽을 이유도 메모해 두세요.",
+    "seconds": 7,
+    "target": {
+      "height": 40,
+      "width": 181.5390625,
+      "x": 348,
+      "y": 339.984375
+    },
+    "start_seconds": 13
+  },
+  {
+    "id": "06_pdf_collect",
+    "path": "assets/06_pdf_collect.jpg",
+    "chapter": "90초 빠른 시작 · 문헌 한 편에서 보고서까지",
+    "caption": "‘공개 PDF 찾아 등록’으로 원문을 가져옵니다.\n이미 받은 PDF는 ‘내 PDF’에서 직접 등록할 수 있습니다.",
+    "seconds": 7,
+    "target": {
+      "height": 40,
+      "width": 450,
+      "x": 798,
+      "y": 631.8046875
+    },
+    "start_seconds": 20
+  },
+  {
+    "id": "07_local_search",
+    "path": "assets/07_local_search.jpg",
+    "chapter": "90초 빠른 시작 · 문헌 한 편에서 보고서까지",
+    "caption": "‘원문 검색·노트’에서 필요한 단어를 찾습니다.\n이 검색은 내 PDF 안에서 AI 없이 작동합니다.",
+    "seconds": 7,
+    "target": {
+      "height": 40,
+      "width": 147.09375,
+      "x": 348,
+      "y": 328.7890625
+    },
+    "start_seconds": 27
+  },
+  {
+    "id": "09_note",
+    "path": "assets/09_note.jpg",
+    "chapter": "90초 빠른 시작 · 문헌 한 편에서 보고서까지",
+    "caption": "원문 발췌와 내 생각을 구분해 노트로 저장하세요.\n문헌과 PDF 쪽수가 함께 남아 인용 근거를 되짚을 수 있습니다.",
+    "seconds": 9,
+    "target": {
+      "height": 40,
+      "width": 105.671875,
+      "x": 348,
+      "y": 455.7578125
+    },
+    "start_seconds": 34
+  },
+  {
+    "id": "10_note_to_report",
+    "path": "assets/10_note_to_report.jpg",
+    "chapter": "90초 빠른 시작 · 문헌 한 편에서 보고서까지",
+    "caption": "‘저장한 노트로 보고서 쓰기’를 누릅니다.\n읽은 내용이 보고서의 근거로 연결됩니다.",
+    "seconds": 6,
+    "target": {
+      "height": 40,
+      "width": 169.640625,
+      "x": 332,
+      "y": 571.2578125
+    },
+    "start_seconds": 43
+  },
+  {
+    "id": "11_draft",
+    "path": "assets/11_draft.jpg",
+    "chapter": "90초 빠른 시작 · 문헌 한 편에서 보고서까지",
+    "caption": "논점 제목·핵심 주장·내 문단을 작성하고 저장하세요.\n연결한 원문과 메모를 옆에서 보며 쓸 수 있습니다.",
+    "seconds": 9,
+    "target": {
+      "height": 40,
+      "width": 105.671875,
+      "x": 332,
+      "y": 359.0859375
+    },
+    "start_seconds": 49
+  },
+  {
+    "id": "12_source_back",
+    "path": "assets/12_source_back.jpg",
+    "chapter": "90초 빠른 시작 · 문헌 한 편에서 보고서까지",
+    "caption": "근거가 궁금하면 ‘원문에서 확인’을 누르세요.\n원문을 읽고 다시 초안으로 돌아올 수 있습니다.",
+    "seconds": 6,
+    "target": {
+      "height": 40,
+      "width": 302.40625,
+      "x": 929.59375,
+      "y": 339.8828125
+    },
+    "start_seconds": 58
+  },
+  {
+    "id": "14_report_preview",
+    "path": "assets/14_report_preview.jpg",
+    "chapter": "90초 빠른 시작 · 문헌 한 편에서 보고서까지",
+    "caption": "전체 초안에서 문단과 출처 주석을 확인합니다.\nMarkdown 문서로 내려받아 집필을 이어가세요.",
+    "seconds": 7,
+    "target": {
+      "height": 40,
+      "width": 166.4921875,
+      "x": 332,
+      "y": 284.7890625
+    },
+    "start_seconds": 64
+  },
+  {
+    "id": "21_pdf_highlight",
+    "path": "assets/21_pdf_highlight.jpg",
+    "chapter": "90초 빠른 시작 · 문헌 한 편에서 보고서까지",
+    "caption": "여러 편을 비교할 때는 ‘근거 비교’를 추가로 쓰세요.\nAI 결과는 원문을 읽고 판단합니다. 이 화면은 사전 준비한 예제입니다.",
+    "seconds": 10,
+    "target": null,
+    "start_seconds": 71
+  },
+  {
+    "id": "29_finish",
+    "path": "assets/29_finish.jpg",
+    "chapter": "90초 빠른 시작 · 문헌 한 편에서 보고서까지",
+    "caption": "검색 → PDF 확보 → 노트 → 보고서, 이 네 단계로 시작하세요.\n자세한 기능은 전체 사용법 영상에서 볼 수 있습니다.",
+    "seconds": 9,
+    "target": null,
+    "start_seconds": 81
+  }
+]

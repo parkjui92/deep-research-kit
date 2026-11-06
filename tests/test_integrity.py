@@ -230,3 +230,216 @@ def test_search_box_offers_key_field_and_keyless_retry(tmp_path, monkeypatch):
 
 def st_results(app):
     return len(app.session_state["wb_results"])
+
+
+@pytest.mark.parametrize('legacy', [None, 'OpenAlex 검색 결과', 'Crossref · OpenAlex'])
+def test_rechecking_preserves_openalex_warning_and_source_history(tmp_path, legacy):
+    p, run = _project(tmp_path)
+    sid = w.evidence(p, run)[0]['source_id']
+    p.fill_metadata(sid, doi='10.1/a')
+    flag = integrity.from_search({'doi': '10.1/a', 'retracted': True})
+    if legacy:
+        flag = {'doi': '10.1/a', 'via': legacy, 'status': 'retracted', 'notices': [],
+                'checked_at': '2020-01-01T00:00:00Z'}
+    p.set_integrity(sid, flag)
+    with client({'message': {}}) as http:
+        for _ in range(3):
+            integrity.check_sources(p, client=http)
+            record = p.source(sid)['integrity']
+            assert record['status'] == 'retracted'
+            assert record['providers']['OpenAlex']['status'] == 'retracted'
+            assert record['providers']['Crossref']['status'] == 'clear'
+    assert len(record['checks']) == (5 if legacy == 'Crossref · OpenAlex' else 4)
+    if legacy:
+        assert record['providers']['OpenAlex']['checked_at'].startswith('2020-01-01')
+    # Reading/migrating and checking must not mutate the caller's original snapshot.
+    if legacy:
+        assert flag['via'] == legacy
+    else:
+        assert len(flag['checks']) == 1
+
+
+def test_failed_recheck_keeps_known_notices_and_reports_failure():
+    original = integrity.check_doi('10.1/a', client(RETRACTED))
+    failed = integrity.check_doi('10.1/a', client({}, status=503), previous=original)
+    assert failed['status'] == 'retracted'
+    assert failed['notices'] == original['notices']
+    assert failed['check_status'] == 'unknown' and failed['retained_warning']
+    assert failed['providers']['Crossref']['last_check']['status'] == 'unknown'
+    assert '최근 조회 실패' in integrity.explain(failed)
+    assert len(failed['checks']) == 2 and len(original['checks']) == 1
+    # A later empty index response does not silently revoke the recorded retraction notice.
+    empty = integrity.check_doi('10.1/a', client({'message': {}}), previous=failed)
+    assert empty['status'] == 'retracted' and empty['check_status'] == 'clear'
+    assert '이전 고지를 유지' in integrity.explain(empty)
+    assert integrity.notice_links(empty) == integrity.notice_links(original)
+
+
+def test_failed_check_is_not_misreported_as_previously_clear():
+    clear = integrity.check_doi('10.1/a', client({'message': {}}))
+    failed = integrity.check_doi('10.1/a', client({}, status=503), previous=clear)
+    assert failed['status'] == 'unknown'
+    assert failed['checks'][0]['status'] == 'clear'
+    assert failed['checks'][1]['status'] == 'unknown'
+
+
+def test_legacy_crossref_warning_is_not_misattributed_to_openalex():
+    legacy = {'doi': '10.1/a', 'via': 'Crossref', 'status': 'corrected', 'checked_at': '2020-01-01',
+              'notices': [{'type': 'correction', 'notice_doi': '10.1/fix', 'label': 'Correction', 'date': '2020-01-01'}]}
+    checked = integrity.check_doi('10.1/a', client({'message': {}}), previous=legacy)
+    assert checked['status'] == 'corrected'
+    assert set(checked['providers']) == {'Crossref'}
+    assert checked['providers']['Crossref']['checked_at'] == '2020-01-01'
+
+
+def test_changed_doi_does_not_inherit_another_papers_warning():
+    previous = integrity.from_search({'doi': '10.1/a', 'retracted': True})
+    checked = integrity.check_doi('https://doi.org/10.1/B', client({'message': {}}), previous=previous)
+    assert checked['status'] == 'clear' and checked['doi'] == '10.1/b'
+    assert len(checked['checks']) == 1 and 'OpenAlex' not in checked['providers']
+
+
+@pytest.mark.parametrize('payload', [{}, {'message': []}])
+def test_malformed_crossref_metadata_is_unknown_not_clear(payload):
+    assert integrity.check_doi('10.1/a', client(payload))['status'] == 'unknown'
+
+
+def test_openalex_only_does_not_claim_corrections_were_checked():
+    def handler(request):
+        return httpx.Response(404, json={}) if 'crossref' in request.url.host else httpx.Response(200, json={'is_retracted': False})
+    record = integrity.check_doi('10.1/a', httpx.Client(transport=httpx.MockTransport(handler)))
+    assert record['coverage'] == 'retraction_only'
+    assert '정정·우려 고지는 확인하지 못했습니다' in integrity.explain(record)
+    assert record['providers']['Crossref']['status'] == 'not_found'
+    assert record['providers']['OpenAlex']['status'] == 'clear'
+
+
+def test_missing_openalex_flag_is_unknown_not_false():
+    def handler(request):
+        return httpx.Response(404, json={}) if 'crossref' in request.url.host else httpx.Response(200, json={})
+    record = integrity.check_doi('10.1/a', httpx.Client(transport=httpx.MockTransport(handler)))
+    assert record['status'] == 'unknown'
+
+
+def test_merging_older_candidate_preserves_catalog_check_and_deduplicates_history():
+    older = {'doi': '10.1/a', 'status': 'clear', 'via': 'Crossref', 'notices': [], 'checked_at': '2020-01-01'}
+    newer = integrity.check_doi('10.1/a', client(RETRACTED), previous=older)
+    combined = integrity.merge_records('10.1/a', newer, older, newer)
+    assert combined['status'] == 'retracted'
+    assert len(combined['checks']) == len(newer['checks']) == 2
+    assert combined['providers']['Crossref']['status'] == 'retracted'
+    assert integrity.merge_records('10.1/a', None, None) is None
+
+
+def test_fresh_candidate_warning_is_visible_over_catalog_clear():
+    clear = integrity.check_doi('10.1/a', client({'message': {}}))
+    candidate = {'doi': '10.1/a', 'source_id': 's1', 'retracted': True}
+    record = notebook.candidate_integrity(candidate, {'s1': {'doi': '10.1/a', 'integrity': clear}})
+    assert record['status'] == 'retracted'
+    assert record['providers']['OpenAlex']['status'] == 'retracted'
+    assert record['providers']['Crossref']['status'] == 'clear'
+
+
+@pytest.mark.parametrize('pdf_available', [True, False])
+def test_recollect_does_not_erase_newer_checks(tmp_path, monkeypatch, pdf_available):
+    from deep_research import acquire, providers
+    p, run = _project(tmp_path)
+    sid = w.evidence(p, run)[0]['source_id']
+    p.fill_metadata(sid, doi='10.1/a')
+    known = integrity.check_doi('10.1/a', client(RETRACTED))
+    p.set_integrity(sid, known)
+    old = {'doi': '10.1/a', 'status': 'clear', 'via': 'Crossref', 'notices': [], 'checked_at': '2020-01-01'}
+    candidate = {'doi': '10.1/a', 'title': 'Paper', 'url': '', 'integrity': old}
+    p.remember_candidate({**candidate, 'integrity': known, 'source_id': sid, 'status': 'added'})
+    data = (p.source_dir(sid) / 'original.pdf').read_bytes() if pdf_available else None
+    monkeypatch.setattr(acquire, 'find_pdf', lambda candidate, client=None: (data, []))
+    providers.collect(p, candidate)
+    assert p.source(sid)['integrity']['status'] == 'retracted'
+    assert p.collection()[0]['integrity']['status'] == 'retracted'
+    assert p.collection()[0]['integrity']['providers']['Crossref']['status'] == 'retracted'
+
+
+def test_partial_check_reaches_report_and_report_screen(tmp_path):
+    from streamlit.testing.v1 import AppTest
+    from test_ui import _workbench_script
+    p, run = _project(tmp_path)
+    row = w.evidence(p, run)[0]
+    w.review(p, run, row['id'], 'accept', 'Checked context', 'Reviewer')
+    partial = {'doi': '10.1/a', 'status': 'clear', 'via': 'OpenAlex(Crossref에 없는 DOI · 정정 고지는 확인 못 함)',
+               'notices': [], 'checked_at': '2020-01-01'}
+    p.set_integrity(row['source_id'], partial)
+    assert '정정·우려 고지는 확인하지 못했습니다' in report(p, run)
+    app = AppTest.from_function(_workbench_script, args=(str(p.root),))
+    app.session_state['drk_claude_ready'] = False
+    app.session_state['cc_status'] = {'available': False, 'reason': 'test'}
+    app.run(timeout=60)
+    app.button(key='wb_progress_채택').click().run(timeout=60)
+    assert not app.exception
+    assert any('철회 표시만 확인했습니다. 정정·우려 고지는 미확인입니다' in m.value for m in app.markdown)
+
+
+def test_other_source_observation_does_not_hide_a_failed_check(monkeypatch):
+    monkeypatch.setattr(integrity, 'now', lambda: '2026-01-01T00:00:00Z')
+    initial = integrity.from_search({'doi': '10.1/a', 'retracted': True})
+    monkeypatch.setattr(integrity, 'now', lambda: '2026-01-02T00:00:00Z')
+    failed = integrity.check_doi('10.1/a', client({}, status=503), previous=initial)
+    monkeypatch.setattr(integrity, 'now', lambda: '2026-01-03T00:00:00Z')
+    candidate = {'doi': '10.1/a', 'source_id': 's1', 'retracted': True}
+    combined = notebook.candidate_integrity(candidate, {'s1': {'doi': '10.1/a', 'integrity': failed}})
+    assert combined['status'] == 'retracted' and combined['check_status'] == 'unknown'
+    assert 'Crossref HTTPStatusError' in combined['error']
+    assert '최근 조회 실패' in integrity.explain(combined)
+    recovered = integrity.check_doi('10.1/a', client({'message': {}}), previous=combined)
+    assert recovered['status'] == 'retracted' and recovered['check_status'] == 'clear'
+    assert 'error' not in recovered
+    assert all('checks' not in c and 'providers' not in c and 'last_check' not in c for c in recovered['checks'])
+
+
+def test_result_json_preserves_current_integrity_beside_frozen_sources(tmp_path):
+    import io
+    import json
+    import zipfile
+    p, run = _project(tmp_path)
+    row = w.evidence(p, run)[0]
+    frozen = w.manifest(p, run)['sources']
+    assert not frozen[0].get('integrity')
+    w.review(p, run, row['id'], 'accept', 'Checked context', 'Reviewer')
+    warning = integrity.check_doi('10.1/a', client(RETRACTED))
+    failed = integrity.check_doi('10.1/a', client({}, status=503), previous=warning)
+    p.set_integrity(row['source_id'], failed)
+    with zipfile.ZipFile(io.BytesIO(export_zip(p, run))) as archive:
+        exported = json.loads(archive.read('research.json'))
+        assert exported['run']['sources'] == frozen
+        assert exported['current_sources'][0]['integrity'] == failed
+        assert exported['exported_at']
+        assert '최근 조회 실패' in archive.read('research.md').decode()
+        assert 'current_sources' in archive.read('README.txt').decode()
+    assert w.manifest(p, run)['sources'] == frozen
+
+
+@pytest.mark.parametrize('optional', [{}, {'doi': None, 'url': None}])
+def test_collect_can_register_pdf_without_doi_or_landing_url(tmp_path, monkeypatch, optional):
+    from deep_research import acquire, providers
+    from deep_research.project import Project
+    p, run = _project(tmp_path)
+    sid = w.evidence(p, run)[0]['source_id']
+    data = (p.source_dir(sid) / 'original.pdf').read_bytes()
+    fresh = Project(tmp_path / 'fresh').initialize()
+    candidate = {'title': 'A PDF without a DOI', 'pdf_url': 'https://example.test/paper.pdf', **optional}
+    monkeypatch.setattr(acquire, 'find_pdf', lambda candidate, client=None: (data, []))
+    result = providers.collect(fresh, candidate)
+    assert result['status'] == 'added'
+    assert fresh.source(result['source_id'])['doi'] == ''
+    assert fresh.collection()[0]['source_id'] == result['source_id']
+
+
+def test_collect_without_retrieval_metadata_returns_clear_missing_result(tmp_path):
+    from deep_research import providers
+    from deep_research.project import Project
+    p = Project(tmp_path / 'no-address').initialize()
+    def unexpected(request):
+        raise AssertionError('A title-only candidate must not make an invented network request')
+    result = providers.collect(p, {'title': 'Title only'}, httpx.Client(transport=httpx.MockTransport(unexpected)))
+    assert result['status'] == 'pdf_missing' and result['source_id'] is None
+    assert 'PDF를 직접 가져오세요' in result['attempts'][0]['result']
+    assert p.collection()[0]['title'] == 'Title only'

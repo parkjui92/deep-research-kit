@@ -112,6 +112,7 @@ def test_reading_note_to_report_and_back(tmp_path):
     from test_ui import _button, _workbench_script
     p, sid = local_project(tmp_path)
     app = AppTest.from_function(_workbench_script, args=(str(p.root),))
+    app.session_state["drk_claude_ready"] = False
     app.session_state["wb_library_view"] = "원문 검색·노트"
     app = app.run()
     app.text_input(key="wb_local_query").set_value("sample")
@@ -151,6 +152,7 @@ def test_review_edit_field_is_only_shown_for_edit(tmp_path):
     p, _ = _project_with_value(tmp_path, "A finding")
     app = AppTest.from_function(_workbench_script, args=(str(p.root),)).run()
     assert not any(t.label.startswith("수정한 값") for t in app.text_area)
+    app.button(key="wb_focus").click().run()
     next(r for r in app.radio if r.label == "이 값을").set_value("edit").run()
     assert not app.exception
     assert next(t for t in app.text_area if t.label.startswith("수정한 값")).value == "A finding"

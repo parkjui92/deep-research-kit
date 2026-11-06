@@ -10,8 +10,8 @@ HIDDEN = '완료 시간 19% 증가<span style="display:none"> 따라서 AI는 �
 def test_landing_has_no_streamlit_exception():
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py")).run(timeout=30)
     assert not app.exception
-    # Landing (no project) uses st.title; with a project the product header is a markdown block.
-    assert app.title or any("Deep Research Kit" in m.value for m in app.markdown)
+    # The landing page has a title; an open project keeps its product mark in the sidebar.
+    assert app.title or any("deep research kit" in m.value.lower() for m in app.markdown)
 
 
 def test_escape_helpers_keep_text_as_written():
@@ -63,13 +63,14 @@ def test_workbench_shows_values_as_written(tmp_path):
     p, run = _project_with_value(tmp_path, HIDDEN)
     app = AppTest.from_function(_workbench_script, args=(str(p.root),)).run(timeout=60)
     assert not app.exception
+    cells = [b for b in app.button if "19%" in b.label]
+    assert cells and all("\\<span" in b.label for b in cells)
+    assert all("US\\$14,900에서 US\\$235,000" in b.help for b in cells)
+    assert any("Study of &quot;AI&quot; &lt;tools&gt;" in m.value for m in app.markdown)
+    app.button(key="wb_focus").click().run()
     html = "\n".join(m.value for m in app.markdown)
     assert '<span style="display:none">' not in html
     assert "&lt;span style=&quot;display:none&quot;&gt;" in html  # the value panel shows the markup as text
-    assert "Study of &quot;AI&quot; &lt;tools&gt;" in html          # title attribute is not cut at the quote
-    cells = [b for b in app.button if "19%" in b.label]
-    assert cells and all("\\<span" in b.label for b in cells)               # the label shows the markup as text
-    assert all("US\\$14,900에서 US\\$235,000" in b.help for b in cells)   # money, not a formula (#21)
 
 
 def test_report_escapes_text_but_csv_keeps_it(tmp_path):
@@ -104,6 +105,7 @@ def test_step_mode_button_switches_without_error(tmp_path):
 def test_detail_shows_extraction_note_and_scope(tmp_path):
     p, run = _project_with_value(tmp_path, "Test finding", note="1~5쪽만 읽음. 부록은 보지 않음")
     app = AppTest.from_function(_workbench_script, args=(str(p.root),)).run(timeout=60)
+    app.button(key="wb_focus").click().run()
     captions = "\n".join(c.value for c in app.caption)
     assert "AI 메모(AI가 적은 읽은 범위·한계) · 1\\~5쪽만 읽음" in captions
     assert "요청에 넣은 범위 · PDF 1~1쪽 / 전체 1쪽" in captions
@@ -115,6 +117,7 @@ def test_cropped_page_says_why_it_cannot_be_adopted(tmp_path):
     locator = w.evidence(p, run)[0]["locators"][0]
     assert locator["status"] == "unsupported_page_geometry" and locator["text_found"] is True
     app = AppTest.from_function(_workbench_script, args=(str(p.root),)).run(timeout=60)
+    app.button(key="wb_focus").click().run()
     assert any("CropBox" in m.value for m in app.warning)
     assert any("글자는 이 구간에 그대로 있음" in m.value for m in app.markdown)
 
@@ -183,6 +186,7 @@ def test_detail_shows_reference_translation_apart_from_the_quote(tmp_path):
     app = AppTest.from_function(_workbench_script, args=(str(p.root),))
     app.session_state["wb_run"] = run  # two runs made in the same second: look at the new one
     app = app.run(timeout=60)
+    app.button(key="wb_focus").click().run()
     html = "\n".join(m.value for m in app.markdown)
     assert "참고 번역(AI · 원문 대조 안 함) · 무작위 &lt;연구&gt;에서 발견" in html
     assert "발췌 1 · PDF 1쪽" in html and "발췌 2 · PDF 1쪽" in html
@@ -241,6 +245,7 @@ def test_review_advances_inside_filtered_queue(tmp_path):
     p, run = _project_with_value(tmp_path, "Research result")
     app = AppTest.from_function(_workbench_script, args=(str(p.root),)).run()
     app.selectbox(key="wb_filter").set_value("미검토").run()
+    app.button(key="wb_focus").click().run()
     picked = app.session_state["wb_pick"]
     next(r for r in app.radio if r.label == "이 값을").set_value("accept")
     next(c for c in app.checkbox if "앞뒤 문맥" in c.label).check()

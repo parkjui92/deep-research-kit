@@ -28,6 +28,7 @@ def scope_session(project):
 
 def navigate(view, evidence_id=None, field_id=None):
     st.session_state["wb_view"] = view
+    st.session_state["scroll_top"] = True
     if evidence_id:
         st.session_state["wb_next"] = evidence_id
         st.session_state["wb_filter"] = "전체"
@@ -144,14 +145,14 @@ def check_integrity(project, source_ids):
     with st.spinner("Crossref에서 철회·정정 고지를 조회하는 중"):
         records = integrity.check_sources(project, set(source_ids))
     found = integrity.flagged(records)
-    failed = sum(r["status"] == "unknown" for r in records)
+    failed = sum(r.get("check_status", r["status"]) == "unknown" for r in records)
     st.session_state["flash"] = (f"{len(records)}편 확인 · 철회·정정·우려 고지 {len(found)}편"
                                  + (f" · 조회 실패 {failed}편" if failed else "")
                                  + ". 고지가 없다는 것이 문헌의 타당성을 뜻하지는 않습니다.")
     return records
 
 
-def progress_strip(project, run_id=None):
+def progress_strip(project, run_id=None, *, compact=False):
     """Consensus-style 'searched → read' line for this research: each count opens the place
     where those papers are, so what was left out stays visible."""
     from deep_research import notebook
@@ -175,12 +176,13 @@ def progress_strip(project, run_id=None):
                    ("채택", f"{counts['kept']}건", (VIEWS[2], None), "보고서에 쓸 수 있는 근거")]
     flagged = integrity.flagged([s.get("integrity") for s in catalog])
     with st.container(key="drk-progress"):
-        cols = st.columns(len(stages) + bool(flagged))
+        cols = [st.container() for _ in stages] if compact else st.columns(len(stages) + bool(flagged))
         for col, (name, count, (view, section), hint) in zip(cols, stages):
             col.button(f"{name} {count}", key=f"wb_progress_{name}", help=hint, width="stretch", type="tertiary",
                        on_click=_go_section, args=(view, section))
         if flagged:
-            cols[-1].button(f"⚠ 철회·정정 {len(flagged)}편", key="wb_progress_integrity", width="stretch", type="tertiary",
+            target = st if compact else cols[-1]
+            target.button(f"⚠ 철회·정정 {len(flagged)}편", key="wb_progress_integrity", width="stretch", type="tertiary",
                             help="철회·정정·우려 표명 고지가 있는 등록 문헌", on_click=_go_section, args=(VIEWS[1], "내 PDF"))
 
 
@@ -245,7 +247,7 @@ def results_panel(project, run_id, export_controls, synthesis_controls=None):
             with st.container(border=True):
                 st.markdown(f"**{ui.md(fields[row['field_id']])}** · {ui.md(sources[row['source_id']]['title'])}")
                 st.write(ui.md(display_value(row)))
-                st.button("원문·검토 기록 보기", key="wb_kept_" + row["id"],
+                st.button(ui.md(f"원문·검토 기록 보기 · {fields[row['field_id']]} · {sources[row['source_id']]['title']}"), key="wb_kept_" + row["id"],
                           on_click=navigate, args=(VIEWS[0], row["id"], row["field_id"]))
     with synthesis:
         if synthesis_controls:
@@ -302,17 +304,20 @@ def _citation_preview(source, row, field_name, key):
 def _cited_integrity(project, cited_sources):
     flagged = [s for s in cited_sources if (s.get("integrity") or {}).get("status") in integrity.FLAGGED]
     unchecked = [s for s in cited_sources if (s.get("integrity") or {}).get("status") not in {*integrity.FLAGGED, "clear"}]
+    partial = [s for s in cited_sources if integrity.partial_check(s.get("integrity"))]
     with st.container(border=True):
         left, right = st.columns([3, 1])
         if flagged:
             left.markdown(f"**채택 근거의 문헌 가운데 {len(flagged)}편에 철회·정정·우려 고지가 있습니다.**")
         elif unchecked:
             left.markdown(f"**채택 근거의 문헌 {len(cited_sources)}편 가운데 {len(unchecked)}편은 철회·정정 여부를 확인하지 못했습니다.**")
+        elif partial:
+            left.markdown(f"**채택 근거의 문헌 {len(cited_sources)}편 가운데 {len(partial)}편은 철회 표시만 확인했습니다. 정정·우려 고지는 미확인입니다.**")
         else:
             left.markdown(f"**채택 근거의 문헌 {len(cited_sources)}편에서 철회·정정 고지를 찾지 못했습니다.**")
         left.caption("보고서에 쓰기 전에 DOI를 Crossref(없으면 OpenAlex)에 보내 확인합니다. 고지가 없다는 것이 문헌의 타당성을 뜻하지는 않습니다.")
         if right.button("철회·정정 확인", key="wb_integrity_cited", icon=":material/fact_check:", width="stretch"):
             check_integrity(project, [s["id"] for s in cited_sources])
             st.rerun()
-        for source in flagged + [s for s in unchecked if s.get("integrity")]:
+        for source in flagged + partial + [s for s in unchecked if s.get("integrity")]:
             ui.integrity_note(source["integrity"], ui.short(source["title"], 60) + " · ")

@@ -9,7 +9,7 @@ borderColor = "#D6D9E3"
 dataframeBorderColor = "#D6D9E3"
 dataframeHeaderBackgroundColor = "#F0F1F7"
 showWidgetBorder = true
-showSidebarBorder = false
+showSidebarBorder = true
 baseRadius = "8px"
 buttonRadius = "8px"
 baseFontSize = 16
@@ -34,15 +34,15 @@ family = "Pretendard"
 url = "app/static/fonts/Pretendard-Bold.woff2"
 weight = 700
 
-# Dark navy step rail on the left, white workspace on the right (0.2.1).
+# Quiet navigation rail; semantic colours remain reserved for review decisions.
 [theme.sidebar]
-backgroundColor = "#111A2E"
-secondaryBackgroundColor = "#1C2742"
-textColor = "#E5E7EB"
-primaryColor = "#818CF8"
-linkColor = "#A5B4FC"
-borderColor = "#2A3550"
-dataframeHeaderBackgroundColor = "#1C2742"
+backgroundColor = "#F7F8FC"
+secondaryBackgroundColor = "#EEF0F7"
+textColor = "#303B55"
+primaryColor = "#4F46E5"
+linkColor = "#4F46E5"
+borderColor = "#E2E5EF"
+dataframeHeaderBackgroundColor = "#EEF0F7"
 
 [client]
 toolbarMode = "minimal"

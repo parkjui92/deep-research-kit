@@ -26,14 +26,31 @@ def test_index_check_is_cached_but_a_changed_file_is_still_caught(tmp_path, monk
         p.index(sid)
 
 
-def test_comparison_shows_more_columns_and_the_pdf_beside_the_review(tmp_path):
+def test_comparison_cell_opens_review_and_returns_with_filters_preserved(tmp_path):
     p, run = _project_with_value(tmp_path, "19 percent longer")
     app = AppTest.from_function(_workbench_script, args=(str(p.root),)).run(timeout=60)
     assert not app.exception
     assert len(app.session_state["wb_columns"]) == 4
-    assert app.toggle(key="wb_pdf_inline").value is True
+    assert not any(r.label == "이 값을" for r in app.radio)
+    app.text_input(key="wb_find").input("19 percent").run()
+    app.selectbox(key="wb_filter").set_value("미검토").run()
+    target = w.evidence(p, run)[-1]["id"]
+    app.button(key="cell-" + target).click().run()
+    assert not app.exception
+    assert app.session_state["wb_layout"] == "집중 검토"
+    assert app.session_state["wb_pick"] == target
+    assert any(r.label == "이 값을" for r in app.radio)
+    assert any("원문의 앞뒤" in c.label for c in app.checkbox)
+    assert len(app.get("component_instance")) >= 1  # actual PDF component
     assert not any(e.label == "원문 PDF 펼치기" for e in app.expander)
-    assert not any(e.label == "검색·검토 상태·표시 항목" for e in app.expander)
+    assert any(e.label == "비교표 도구·필터" for e in app.expander)
+    app.button(key="wb_back_table").click().run()
+    assert not app.exception
+    assert app.session_state["wb_layout"] == "비교표"
+    assert not any(e.label == "비교표 도구·필터" for e in app.expander)
+    assert app.text_input(key="wb_find").value == "19 percent"
+    assert app.selectbox(key="wb_filter").value == "미검토"
+    assert app.session_state["wb_pick"] == target
 
 
 def _synthesis_script(root, run_id):

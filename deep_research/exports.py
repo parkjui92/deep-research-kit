@@ -8,7 +8,7 @@ import zipfile
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from .integrity import FLAGGED, explain, notice_links
+from .integrity import FLAGGED, explain, notice_links, partial_check
 from .integrity import label as integrity_label
 from .project import read_json
 from .workflow import COMPARISON, accepted, current_synthesis, evidence, manifest, reviewed_value
@@ -105,6 +105,10 @@ def bundle_data(project, run_id):
     for source in run["sources"]:
         project.index(source["id"])
     return {"schema": "drk-export/1", "run": run, "evidence": evidence(project, run_id),
+            # Preserve the frozen extraction snapshot and the latest catalog separately.
+            # Retraction checks/bibliography may have been updated since this run was created.
+            "current_sources": [project.source(s["id"]) for s in run["sources"]],
+            "exported_at": datetime.now(UTC).isoformat(),
             "reviews": read_json(project.run_dir(run_id) / "reviews.json"),
             "synthesis": current_synthesis(project, run_id)}
 
@@ -129,13 +133,16 @@ def report(project, run_id, local_pdf_links=False):
     flagged = [s for sid, s in sources.items() if sid in cited and (s.get("integrity") or {}).get("status") in FLAGGED]
     unchecked = [s for sid, s in sources.items() if sid in cited
                  and (s.get("integrity") or {}).get("status") not in {*FLAGGED, "clear"}]
-    if flagged or unchecked:
+    partial = [s for sid, s in sources.items() if sid in cited and partial_check(s.get("integrity"))]
+    if flagged or unchecked or partial:
         lines += ["## 철회·정정 확인", ""]
         for source in flagged:
             links = " ".join(f"<{u}>" for u in notice_links(source["integrity"]))
             lines.append(f"- **{text(source['title'])}**: {text(explain(source['integrity']))} {links}".rstrip())
         if unchecked:
             lines.append(f"- 채택 근거의 문헌 {len(unchecked)}편은 철회·정정 여부를 확인하지 않았거나 확인하지 못했습니다.")
+        for source in partial:
+            lines.append(f"- **{text(source['title'])}**: {text(explain(source['integrity']))}")
         lines += ["", "Crossref·OpenAlex의 고지만 조회합니다. 고지가 없다는 것이 문헌의 타당성을 뜻하지는 않습니다.", ""]
     lines += ["## 종합", ""]
     if synthesis:
@@ -235,6 +242,7 @@ def export_zip(project, run_id, include_pdfs=False):
             if include_pdfs:
                 archive.write(project.source_dir(source["id"]) / "original.pdf", "sources/" + source["id"] + ".pdf")
         archive.writestr("README.txt", "Markdown + research.json + CSV는 같은 실행의 기록입니다.\n"
+                          "research.json의 run.sources는 추출 당시 기록, current_sources는 내보낼 때의 문헌 정보와 철회·정정 조회 이력입니다.\n"
                           "PDF 파일을 포함했다면 원 저작물의 이용 조건이 계속 적용됩니다.\n"
                           "PDF 쪽수는 1부터 세며 인쇄된 쪽 번호와 다를 수 있습니다. 좌표는 좌상단 기준 PDF point입니다.\n")
     return buffer.getvalue()

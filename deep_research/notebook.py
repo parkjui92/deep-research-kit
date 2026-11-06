@@ -41,9 +41,10 @@ def text_status(item, catalog_by_id):
 
 def candidate_integrity(item, catalog_by_id=None):
     """The stored check, the registered source's check, or OpenAlex's retraction flag from search."""
-    from .integrity import from_search
+    from .integrity import from_search, merge_records
     source = (catalog_by_id or {}).get(item.get("source_id") or "") or {}
-    return source.get("integrity") or item.get("integrity") or from_search(item)
+    return merge_records(item.get("doi") or source.get("doi", ""),
+                         source.get("integrity"), item.get("integrity"), from_search(item))
 
 
 def update_reading(project, key, state, reason):
@@ -100,7 +101,7 @@ def save_note(project, source_id, passage_id, quote, memo, kind="기타"):
         record = {"id": "n_" + uuid.uuid4().hex[:16], "source_id": source_id,
                   "source_sha256": source["sha256"], "kind": kind, "quote": quote.strip(),
                   "memo": memo.strip(), "locator": locator, "created_at": now(),
-                  "review_status": "unreviewed_note"}
+                  "revision": 1, "history": [], "review_status": "unreviewed_note"}
         existing = notes(project)
         duplicate = next((n for n in existing if all(n.get(k) == record[k]
                          for k in ("source_id", "kind", "quote", "memo"))), None)
@@ -108,6 +109,45 @@ def save_note(project, source_id, passage_id, quote, memo, kind="기타"):
             return duplicate
         write_json(project.root / "reading-notes.json", existing + [record])
         return record
+
+
+def update_note(project, note_id, memo, kind, expected_revision=None):
+    """Revise the reader's interpretation while keeping the original quotation and its history.
+
+    A quotation is immutable: a different passage is a new note. Old notes without revision
+    metadata start at version 1. An open form cannot silently replace a newer revision.
+    """
+    if kind not in NOTE_KINDS or not isinstance(memo, str) or not memo.strip():
+        raise ValueError("노트 분류와 메모를 입력하세요.")
+    with project.lock:
+        records = notes(project)
+        note = next((n for n in records if n["id"] == note_id), None)
+        if note is None:
+            raise ValueError("수정할 노트를 찾을 수 없습니다.")
+        revision = note.get("revision", 1)
+        if expected_revision is not None and expected_revision != revision:
+            raise ValueError("다른 화면에서 이 노트가 수정되었습니다. 화면을 새로고침한 뒤 다시 확인하세요.")
+        source = project.source(note["source_id"])
+        project.index(source["id"])
+        if source["sha256"] != note["source_sha256"]:
+            raise ValueError("노트가 참조한 원본 PDF가 달라졌습니다.")
+        if note["memo"] == memo.strip() and note["kind"] == kind:
+            return note
+        note.setdefault("history", []).append({"revision": revision, "memo": note["memo"],
+            "kind": note["kind"], "at": note.get("updated_at", note["created_at"])})
+        note.update(memo=memo.strip(), kind=kind, revision=revision + 1, updated_at=now())
+        write_json(project.root / "reading-notes.json", records)
+        return note
+
+
+def filter_notes(project, query="", kind=None, source_id=None):
+    """Find a reader's notes by source, kind and AND keywords in memo, quote or title."""
+    sources = {s["id"]: s for s in project.catalog()}
+    terms = query.casefold().split()
+    return [n for n in notes(project)
+            if (not kind or n["kind"] == kind) and (not source_id or n["source_id"] == source_id)
+            and all(term in " ".join((n["memo"], n["quote"], sources[n["source_id"]]["title"])).casefold()
+                    for term in terms)]
 
 
 def csv_text(rows, columns):
@@ -160,6 +200,8 @@ def notes_markdown(project):
 
 def library_zip(project, include_pdfs=False):
     """Portable materials, notes and search log, usable before the first AI run."""
+    from . import writing
+
     sources = project.catalog()
     for source in sources:
         project.index(source["id"])
@@ -171,16 +213,19 @@ def library_zip(project, include_pdfs=False):
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("reading-notes.md", notes_markdown(project))
+        archive.writestr("report-draft.md", writing.markdown(project))
+        archive.writestr("report-draft.json", json.dumps(writing.load(project), ensure_ascii=False, indent=2))
         archive.writestr("references.ris", references_ris(project))
         archive.writestr("search-log.csv", csv_text(rows, ["검색 시각", "검색어", "자료원", "반환 건수", "연도 이후", "자료원 오류"]))
         archive.writestr("materials.json", json.dumps({"schema": "drk-materials/1",
             "project": read_json(project.root / "project.json"), "config": project.config(),
             "sources": sources, "candidates": project.collection(), "notes": notes(project),
+            "report_draft": writing.load(project),
             "search_log": search_log}, ensure_ascii=False, indent=2))
         if include_pdfs:
             for source in sources:
                 archive.write(project.source_dir(source["id"]) / "original.pdf", f"sources/{source['id']}.pdf")
-        archive.writestr("README.txt", "자료·독서 노트·검색 이력 묶음입니다. AI 실행/검토 전체 기록은 결과 ZIP을 별도로 받으세요.\n"
-                          "노트는 검토 완료 근거가 아닙니다. 쪽수는 PDF 파일 기준입니다.\n"
+        archive.writestr("README.txt", "자료·독서 노트·보고서 초안·검색 이력 묶음입니다. AI 실행/검토 전체 기록은 결과 ZIP을 별도로 받으세요.\n"
+                          "노트와 수동 작성 초안은 검토 완료 근거가 아닙니다. 쪽수는 PDF 파일 기준입니다.\n"
                           "자동 복원 기능이 있는 프로젝트 백업 형식은 아닙니다. 원문의 이용 조건을 지켜 주세요.\n")
     return buffer.getvalue()
