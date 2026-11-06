@@ -11,7 +11,7 @@ from deep_research.project import read_json
 
 from . import chrome as ui
 from . import translation
-from .research import highlight, query_terms
+from .research import candidate_label, highlight, query_terms
 
 
 def _candidate_table_pick(table_key, keys):
@@ -79,7 +79,7 @@ def candidate_queue(project):
     a, b = st.columns(2)
     with a.popover("후보 선택", help="키보드 또는 좁은 화면에서 제목으로 후보를 선택합니다."):
         key = st.selectbox("살펴볼 후보", keys, key="wb_candidate", on_change=_candidate_picker_changed,
-                           format_func=lambda k: next(i["title"] for i in visible if notebook.candidate_key(i) == k))
+                           format_func=lambda k: candidate_label(next(i for i in visible if notebook.candidate_key(i) == k)))
     with b.popover("보이는 후보 일괄 작업"):
         st.caption(f"현재 필터에 맞는 후보 {len(visible)}편에만 적용합니다.")
         with_doi = [i for i in visible if i.get("doi")]
@@ -98,6 +98,16 @@ def candidate_queue(project):
     st.markdown("**선택한 후보 · " + ui.md(item["title"]) + "**")
     st.caption(notebook.READING_STATES.get(state.get("state", "next"), "먼저 읽기")
                + " · " + notebook.TEXT_STATES[notebook.text_status(item, catalog)])
+    if item.get("status") == "pdf_missing" and item.get("source_id") not in catalog:
+        from deep_research.acquire import attempts_summary
+
+        st.warning("공개 PDF를 확보하지 못했습니다. 후보와 읽을 이유는 저장되어 있습니다.")
+        st.caption("시도 결과 · " + attempts_summary(item.get("attempts", [])))
+        st.caption("아래 ‘출처 열기’에서 직접 받은 PDF를 등록하거나, 문헌 검색으로 돌아가 다른 공개 판본을 찾아보세요.")
+        if st.button("PDF 직접 가져오기로 이동", key="wb_candidate_import"):
+            st.session_state["wb_library_route"] = "내 PDF"
+            st.session_state["flash"] = "‘PDF·참고문헌 가져오기’에서 받은 PDF를 선택하고 ‘등록’을 누르세요."
+            st.rerun()
     ui.integrity_note(notebook.candidate_integrity(item, catalog), "철회·정정 · ")
     terms = query_terms(item.get("discovered_in"))
     ko = translation.cache(project)
@@ -145,7 +155,8 @@ def candidate_queue(project):
             st.error("PDF를 등록하지 못했습니다: " + ui.md(str(exc)))
             st.caption("후보와 읽기 메모는 남아 있습니다. 다시 시도하거나 「내 PDF」에서 다른 파일을 가져오세요.")
         else:
-            st.session_state["flash"] = "PDF를 등록했습니다." if result.get("source_id") else "공개 PDF를 확보하지 못했습니다. 내 PDF에서 파일을 직접 연결할 수 있습니다."
+            if result.get("source_id"):
+                st.session_state["flash"] = "PDF를 등록했습니다."
             st.rerun()
 
 
@@ -200,7 +211,7 @@ def reading_room(project):
         st.info("내 PDF에 논문·보고서를 가져오면 원문 검색과 독서 노트를 사용할 수 있습니다.")
         return
     with st.form("wb_local_search"):
-        query = st.text_input("원문 검색어", placeholder="예: 생산성, 표본, 적용 한계 — 원문에 쓰인 단어로 검색", key="wb_local_query")
+        query = st.text_input("원문 검색어", placeholder="영문 PDF: productivity, sample · 한글 PDF: 생산성, 표본", key="wb_local_query")
         submitted = st.form_submit_button("내 PDF 전체에서 검색", type="primary")
     if submitted:
         try:
@@ -221,7 +232,8 @@ def reading_room(project):
             chosen = hits[pick]
             translation.control(project, [h["text"] for h in hits], "hits", "검색된 영문 구간 모두 한글 번역")
         else:
-            st.info("읽을 수 있는 원문에서 찾지 못했습니다. 검색어를 바꾸거나 아래에서 직접 읽을 문헌을 고르세요.")
+            st.info("읽을 수 있는 원문에서 찾지 못했습니다. 영문 PDF라면 productivity처럼 원문 언어로 검색하세요. "
+                    "아래에서 직접 읽을 문헌을 골라도 됩니다.")
         if st.button("검색 닫고 직접 읽기", key="wb_local_clear"):
             if chosen:
                 st.session_state["wb_read_source"] = chosen["source_id"]

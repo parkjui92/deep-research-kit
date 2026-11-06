@@ -15,6 +15,7 @@ if not defined UV py -m uv --version >nul 2>nul && set "UV=py -m uv"
 if not defined UV goto no_uv
 
 rem --frozen: uv.lock을 그대로 쓰고 다시 쓰지 않는다(#9).
+echo 필요한 Python과 프로그램을 확인합니다. 처음 실행할 때는 다운로드가 끝날 때까지 기다려 주세요.
 %UV% sync --frozen
 if errorlevel 1 goto failed
 echo.
@@ -31,12 +32,12 @@ echo  2. 설치한 뒤 이 창을 닫고 start.bat을 다시 실행합니다.
 echo  3. 그래도 같은 안내가 나오면 로그아웃 후 다시 로그인하거나 컴퓨터를 다시 시작합니다.
 echo     방금 설치했는데도 이 안내가 나오면 3번이 필요한 경우입니다.
 echo pip로 uv를 설치했다면 Python의 Scripts 폴더가 PATH에 있는지 확인하세요.
-echo 자세한 방법은 README.md의 「시작하기」를 보세요.
+echo 자세한 방법은 README.md의 「빠른 시작」를 보세요.
 pause
 exit /b 1
 
 :failed
 echo.
-echo 설치가 끝나지 않았습니다. 위 오류 문구를 README.md 「시작하기」의 '설치가 막힐 때'와 견주어 보세요.
+echo 설치가 끝나지 않았습니다. 위 오류 문구를 README.md 「빠른 시작」의 '설치가 막힐 때'와 견주어 보세요.
 pause
 exit /b 1

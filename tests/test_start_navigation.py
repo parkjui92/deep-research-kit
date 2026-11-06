@@ -207,7 +207,7 @@ def test_sidebar_selection_can_open_research_from_start_without_changing_mode(tm
     assert app.session_state["mode"] == "작업 화면"
 
 
-@pytest.mark.parametrize("entry,submit", [("조사 질문에서 시작", "문헌 검색 시작"),
+@pytest.mark.parametrize("entry,submit", [("조사 질문에서 시작", "검색 화면으로 이동"),
                                          ("PDF에서 시작", "PDF 가져오기로 이동")])
 def test_question_focus_is_requested_on_open_and_error_but_does_not_interrupt_typing(tmp_path, monkeypatch, entry, submit):
     from ui import chrome

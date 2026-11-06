@@ -86,10 +86,12 @@ def sidebar(existing):
         wanted = None
     if st.session_state.get("project_name") != wanted:
         st.session_state["project_name"] = wanted
+    labels = {n: ("예시 · " if is_example(PROJECTS / n) else "내 조사 · ")
+              + read_json(PROJECTS / n / "project.json")["title"] for n in existing}
+    counts = {label: list(labels.values()).count(label) for label in set(labels.values())}
     name = st.sidebar.selectbox("조사 선택", existing, index=None, key="project_name",
                                 placeholder="내 조사 또는 예시 선택",
-                                format_func=lambda n: ("예시 · " if is_example(PROJECTS / n) else "내 조사 · ")
-                                + read_json(PROJECTS / n / "project.json")["title"],
+                                format_func=lambda n: labels[n] + (f" · {n}" if counts[labels[n]] > 1 else ""),
                                 on_change=select_project)
     if not name:
         return None

@@ -37,6 +37,25 @@ class Upload:
         return self.data
 
 
+def test_unavailable_pdf_keeps_failure_visible_and_offers_manual_import(tmp_path, monkeypatch):
+    p = Project(tmp_path / "p").initialize(question="What works?")
+    candidate = providers._candidate(title="Unavailable paper", doi="10.1/x", url="https://example.test/paper")
+    p.remember_candidate(candidate)
+    notebook.update_reading(p, notebook.candidate_key(candidate), "later", "Compare the method")
+    monkeypatch.setattr(acquire, "find_pdf", lambda *a, **kw: (None, [
+        {"route": "논문 페이지", "url": candidate["url"], "result": "접근 거부(403)"}]))
+    app = AppTest.from_function(_candidate_script, args=(str(p.root),)).run(timeout=30)
+    next(b for b in app.button if b.label == "공개 PDF 찾아 등록").click().run(timeout=30)
+    assert not app.exception and not app.success
+    assert any("공개 PDF를 확보하지 못했습니다" in item.value for item in app.warning)
+    assert p.collection()[0]["reading"]["reason"] == "Compare the method"
+    app.run()
+    assert any("공개 PDF를 확보하지 못했습니다" in item.value for item in app.warning)
+    app.button(key="wb_candidate_import").click().run()
+    assert app.session_state["wb_library_route"] == "내 PDF"
+    assert not p.catalog()
+
+
 def test_candidate_corrupt_pdf_shows_error_and_can_retry_without_losing_notes(tmp_path, monkeypatch):
     p = Project(tmp_path / "p").initialize(question="What works?")
     candidate = providers._candidate(title="Candidate paper", doi="10.1/x", url="https://example.test/paper")

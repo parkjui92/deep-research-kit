@@ -21,10 +21,12 @@ def _resume(projects, names, *, example=False):
     if st.session_state.get(key) not in names:
         st.session_state[key] = None
     metadata = {name: read_json(projects / name / "project.json") for name in names}
+    labels = {name: metadata[name]["title"] + " · " + ui.local_time(metadata[name]["created_at"])
+              for name in names}
+    counts = {label: list(labels.values()).count(label) for label in set(labels.values())}
     chosen = st.selectbox("저장된 예시" if example else "이어서 볼 내 조사", names, index=None,
                           key=key, placeholder="예시를 선택하세요" if example else "조사를 선택하세요",
-                          format_func=lambda name: metadata[name]["title"] + " · "
-                          + ui.local_time(metadata[name]["created_at"]))
+                          format_func=lambda name: labels[name] + (f" · {name}" if counts[labels[name]] > 1 else ""))
     if st.button("선택한 예시 열기" if example else "내 조사 이어하기", key=key + "_go",
                  disabled=not chosen, width="stretch"):
         st.session_state["open_project"] = chosen
@@ -75,7 +77,7 @@ def start_page(projects, make_example):
             keywords = a.text_input("검색어 (선택 · 영문 권장)", placeholder="예: generative AI knowledge work productivity",
                                     help="학술 자료원은 영문 논문이 대부분입니다. 비우면 질문을 그대로 검색어로 넣습니다.")
             since = b.number_input("발행연도 이후 (0=전체)", 0, 2100, 0)
-            if st.form_submit_button("문헌 검색 시작" if path == "문헌 검색" else "PDF 가져오기로 이동", type="primary"):
+            if st.form_submit_button("검색 화면으로 이동" if path == "문헌 검색" else "PDF 가져오기로 이동", type="primary"):
                 if not question.strip():
                     st.error("이번 조사 질문을 입력하세요.")
                     focus_question = True

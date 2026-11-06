@@ -17,11 +17,23 @@ if [ -z "$UV" ]; then
   printf '%s\n' 'uv를 찾지 못했습니다.' \
     ' 1. 터미널에서 curl -LsSf https://astral.sh/uv/install.sh | sh 를 실행합니다(또는 brew install uv).' \
     ' 2. 설치한 뒤 이 창을 닫고 start.command를 다시 실행합니다.' \
-    '자세한 방법은 README.md의 「시작하기」를 보세요. 창을 닫으려면 Enter를 누르세요.'
-  read -r reply
+    '자세한 방법은 README.md의 「빠른 시작」을 보세요.'
+  if [ -t 0 ]; then
+    printf '%s\n' '창을 닫으려면 Enter를 누르세요.'
+    read -r reply
+  fi
   exit 1
 fi
 # --frozen: uv.lock을 그대로 쓰고 다시 쓰지 않는다(#9).
-"$UV" sync --frozen
+printf '%s\n' '필요한 Python과 프로그램을 확인합니다. 처음 실행할 때는 다운로드가 끝날 때까지 기다려 주세요.'
+if ! "$UV" sync --frozen; then
+  printf '%s\n' '설치를 마치지 못했습니다. 위 오류와 인터넷 연결을 확인한 뒤 start.command를 다시 실행하세요.' \
+    '도움말: README.md → 빠른 시작 → 설치가 막힐 때'
+  if [ -t 0 ]; then
+    printf '%s\n' '창을 닫으려면 Enter를 누르세요.'
+    read -r reply
+  fi
+  exit 1
+fi
 printf '\n%s\n%s\n\n' '잠시 뒤 브라우저가 열립니다. 열리지 않으면 http://localhost:8501 을 직접 여세요.' '끝내려면 이 창에서 Ctrl+C를 누르세요.'
 exec "$UV" run --frozen streamlit run app.py --server.address 127.0.0.1

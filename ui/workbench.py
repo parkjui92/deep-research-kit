@@ -32,7 +32,7 @@ from deep_research.writing import load as load_draft
 from . import chrome as ui
 from . import reading, translation, workspace, writing
 from .onboarding import quick_guide
-from .research import FILTERS, SORTS, filter_evidence, review_counts, search_view
+from .research import FILTERS, SORTS, candidate_label, filter_evidence, review_counts, search_view
 
 CELL_TONE = {"accept": "go", "edit": "edit", "hold": "wait", "reject": "stop", "pending": "todo"}
 
@@ -91,6 +91,14 @@ def _say(message):
 
 def workbench(project):
     workspace.scope_session(project)
+    # Streamlit removes widget values when their page is no longer rendered.
+    # Keep search choices separately so a trip to the candidate/PDF page is reversible.
+    remembered_search = st.session_state.setdefault("wb_search_state", {})
+    for key in ("wb_q", "wb_prov", "wb_year", "wb_limit", "wb_result_find", "wb_result_order", "wb_result_oa"):
+        if key in st.session_state:
+            remembered_search[key] = st.session_state[key]
+        elif key in remembered_search:
+            st.session_state[key] = remembered_search[key]
     focus_main = st.session_state.pop("scroll_top", False)
     runs = _answered_runs(project)
     all_runs = project.runs()
@@ -131,7 +139,7 @@ def workbench(project):
         with st.container(key="drk-work-nav"):
             view = st.radio("작업 공간", [workspace.VIEWS[1], workspace.VIEWS[0], workspace.VIEWS[2]], key="wb_view",
                             label_visibility="collapsed")
-        st.caption(f"문헌 {len(sources)}편 · 추출 대상 {len(included)}편")
+        st.caption(f"읽기 후보 {len(project.collection())}편 · PDF {len(sources)}편 · AI 추출 대상 {len(included)}편")
         with st.expander("진행 현황·바로가기"):
             workspace.progress_strip(project, st.session_state.get("wb_run") if runs else None, compact=True)
         with st.popover("조사 설정", icon=":material/tune:", width="stretch"):
@@ -151,8 +159,9 @@ def workbench(project):
     if view == workspace.VIEWS[1]:
         if path := st.session_state.pop("wb_library_route", None):
             st.session_state["wb_library_view"] = path
+        st.session_state.setdefault("wb_library_view", "문헌 검색")
         section = st.segmented_control("문헌 작업", ["문헌 검색", "읽기 후보", "내 PDF", "원문 검색·노트"],
-                                       key="wb_library_view", default="문헌 검색", width="stretch", label_visibility="collapsed") or "문헌 검색"
+                                       key="wb_library_view", width="stretch", label_visibility="collapsed") or "문헌 검색"
         if section == "문헌 검색":
             if not runs:
                 _question_notice(project, config, "wb_question_go_empty")
@@ -167,7 +176,7 @@ def workbench(project):
             reading.reading_room(project)
         else:
             a, b = st.columns(2)
-            with a, st.popover("PDF·서지 가져오기", icon=":material/upload_file:", width="stretch"):
+            with a, st.popover("PDF·참고문헌 가져오기", icon=":material/upload_file:", width="stretch"):
                 _import_popover(project)
             with b, st.popover("AI로 비교표 만들기", icon=":material/auto_awesome:", width="stretch"):
                 _extract_popover(project, runs, included, config)
@@ -181,9 +190,9 @@ def workbench(project):
             st.session_state["wb_output_kind"] = output_route
         elif "wb_output_kind" not in st.session_state and st.session_state.get("wb_output_preference"):
             st.session_state["wb_output_kind"] = st.session_state["wb_output_preference"]
+        st.session_state.setdefault("wb_output_kind", "내 보고서 초안" if load_draft(project)["sections"] else
+                                    ("AI 근거 결과" if runs else "독서 노트·자료"))
         section = st.segmented_control("결과 종류", ["내 보고서 초안", "독서 노트·자료", "AI 근거 결과"],
-                                       default="내 보고서 초안" if load_draft(project)["sections"] else
-                                       ("AI 근거 결과" if runs else "독서 노트·자료"),
                                        key="wb_output_kind", label_visibility="collapsed")
         if section:
             st.session_state["wb_output_preference"] = section
@@ -650,8 +659,10 @@ def _run_search(project, query, providers, limit, year_from):
         return
     st.session_state["wb_results"] = results
     st.session_state["wb_results_query"] = query
+    st.session_state.pop("wb_search_selected", None)
     for key in ("wb_results_editor", "wb_result_pick", "wb_result_find", "wb_result_oa", "wb_result_order"):
         st.session_state.pop(key, None)
+        st.session_state.get("wb_search_state", {}).pop(key, None)
     if not results:
         st.info("검색 결과가 없습니다. 검색어를 줄이거나 연도 범위를 넓혀 보세요.")
     log = read_json(project.root / "search-log.json")[-1]
@@ -668,10 +679,11 @@ def _run_search(project, query, providers, limit, year_from):
 def _search_popover(project):
     st.caption("학술 자료원에 검색어를 보냅니다. 내 PDF·노트는 전송하지 않습니다.")
     _key_box()
+    st.session_state.setdefault("wb_prov", ["OpenAlex"])
     with st.form("wb_search_form"):
         query = st.text_input("검색어", key="wb_q", placeholder="연구 주제를 입력하세요 · 예: generative AI knowledge work productivity")
         a, b, c = st.columns([2, 1, 1])
-        providers = a.multiselect("학술 자료원", ["OpenAlex", "arXiv", "Crossref"], default=["OpenAlex"], key="wb_prov")
+        providers = a.multiselect("학술 자료원", ["OpenAlex", "arXiv", "Crossref"], key="wb_prov")
         year_from = b.number_input("발행연도 이후 (0=전체)", 0, 2100, 0, key="wb_year")
         limit = c.number_input("자료원별 최대 건수", 5, 50, 20, key="wb_limit")
         submitted = st.form_submit_button("문헌 검색", type="primary", icon=":material/search:")
@@ -705,9 +717,16 @@ def search_results_panel(project):
         ko = translation.cache(project)
         # A new key for every ordered set prevents checkboxes moving to a different paper.
         signature = flow.fingerprint(visible)[:12]
-        pick = st.selectbox("살펴볼 문헌", range(len(visible)), key="wb_result_pick_" + signature,
-                            format_func=lambda i: visible[i]["title"])
+        pick_key = "wb_result_pick_" + signature
+        previous = st.session_state.get("wb_search_selected")
+        st.session_state.setdefault(pick_key, next((i for i, item in enumerate(visible)
+                                                   if notebook.candidate_key(item) == previous), 0))
+        pick = st.selectbox("살펴볼 문헌", range(len(visible)), index=None, key=pick_key,
+                            format_func=lambda i: candidate_label(visible[i]))
+        if pick is None:
+            pick = 0
         cand = visible[pick]
+        st.session_state["wb_search_selected"] = notebook.candidate_key(cand)
         saved_keys = {notebook.candidate_key(item) for item in project.collection()}
         already_saved = notebook.candidate_key(cand) in saved_keys
         if st.button("이미 후보함에 있음" if already_saved else "이 문헌을 후보함에 담기", key="wb_collect_one",

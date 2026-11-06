@@ -18,9 +18,9 @@ AI가 뽑은 값마다 원문 PDF의 위치를 붙이고, 그 값을 쓸지는 �
 
 첫 화면의 **「소개 영상 보기」**에서 [90초 핵심 영상](docs/videos/2026-11-07/deep-research-kit-quickstart-ko.mp4)과 [전체 사용법 영상 · 4분 57초](docs/videos/2026-11-07/deep-research-kit-intro-ko.mp4)을 고를 수 있습니다. 한국어 자막이 들어 있으며 자동 재생하지 않습니다. 실제 조작 전후 화면을 편집한 영상이고, AI 비교표는 사전 준비한 예제 응답을 사용했습니다.
 
-1. **검색**: 「조사 질문에서 시작」에 질문과 검색어를 입력하고, 검색 결과의 읽을 문헌을 후보함에 담습니다.
-2. **PDF 확보**: 「읽기 후보」에서 공개 PDF를 찾아 등록하거나 「내 PDF」에서 직접 가져옵니다.
-3. **노트**: 「원문 검색·노트」에서 키워드를 찾고 원문 발췌와 내 메모를 구분해 저장합니다.
+1. **검색**: 「조사 질문에서 시작」에 질문과 검색어를 입력하고 「검색 화면으로 이동」을 누릅니다. 다음 화면에서 「문헌 검색」을 눌러 결과를 확인한 뒤 읽을 문헌을 후보함에 담습니다.
+2. **PDF 확보**: 「읽기 후보」에서 공개 PDF를 찾아 등록합니다. 확보하지 못했거나 이미 가진 파일은 「내 PDF → PDF·참고문헌 가져오기」에서 선택하고 「등록」을 누릅니다.
+3. **노트**: 「원문 검색·노트」에서 원문 언어로 키워드를 찾습니다(영문 PDF라면 `productivity` 등). 원문 발췌와 내 메모를 구분해 저장합니다.
 4. **보고서**: 「저장한 노트로 보고서 쓰기」에서 논점·주장·문단을 작성·저장한 뒤, 「전체 초안·내보내기」에서 출처 주석이 붙은 문서를 받습니다.
 
 이 네 단계는 AI 없이도 사용할 수 있습니다. 작업 중에는 사이드바의 **「처음 쓰는 분을 위한 안내」**를 펼쳐 다시 확인하세요. 여러 논문의 같은 항목을 비교하려면 「근거 비교 → AI 추출」을 추가로 사용하고, 결과를 원문과 대조해 판단을 남깁니다.
@@ -48,14 +48,53 @@ AI가 뽑은 값마다 원문 PDF의 위치를 붙이고, 그 값을 쓸지는 �
 
 ## 빠른 시작
 
-Python 3.11 이상과 [uv](https://docs.astral.sh/uv/getting-started/installation/)가 필요합니다. 저장소를 clone하거나 ZIP을 풀고, **저장소 폴더의 터미널**에서 실행합니다.
+**Git이나 Python을 따로 설치하지 않아도 됩니다.** uv를 한 번 설치하면, 실행 스크립트가 필요한 Python과 프로그램을 준비합니다. 처음 설치할 때는 인터넷이 필요합니다. ([uv의 Python 자동 설치 안내](https://docs.astral.sh/uv/guides/install-python/))
+
+1. **내려받기**: 이 페이지 위의 초록색 **Code → Download ZIP**을 누르거나 [최신 ZIP 다운로드](https://github.com/parkjui92/deep-research-kit/archive/refs/heads/main.zip)를 엽니다. macOS는 ZIP을 더블클릭하고, Windows는 우클릭 → **모두 압축 풀기**를 선택합니다. 압축을 푼 폴더 안에 `app.py`, `start.command`, `start.bat`이 보이면 됩니다.
+2. **uv 설치**: 아래에서 내 운영체제의 방법을 한 번 실행합니다. 이미 설치했다면 건너뜁니다.
+3. **앱 실행**: 같은 운영체제 안내의 시작 파일을 실행합니다. 설치 로그가 끝나면 브라우저에서 앱이 열립니다. 열리지 않으면 **http://localhost:8501**을 직접 엽니다.
+
+<details open>
+<summary><b>macOS</b></summary>
+
+Spotlight(`⌘ Space`)에서 **터미널**을 찾아 엽니다. 아래 명령을 붙여 넣고 Enter를 누르면 uv가 설치됩니다. [uv 공식 설치 방법](https://docs.astral.sh/uv/getting-started/installation/)입니다.
+
+```sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+이제 터미널에 `sh`와 **공백 한 칸**을 입력하고, 압축을 푼 폴더의 **start.command 파일을 터미널로 드래그**한 뒤 Enter를 누르세요. 폴더 이름에 한글이나 공백이 있어도 사용할 수 있습니다. 폴더로 이동하는 `cd` 명령은 필요하지 않습니다.
+
+</details>
+
+<details>
+<summary><b>Windows</b></summary>
+
+시작 메뉴에서 **PowerShell**을 열고 다음 명령을 실행합니다.
+
+```powershell
+winget install astral-sh.uv
+```
+
+설치가 끝나면 압축을 푼 폴더의 **start.bat을 더블클릭**하세요. ZIP 안에서 바로 실행하지 말고 먼저 압축을 풀어야 합니다.
+
+</details>
+
+**실행 중에는 터미널 창을 열어 두세요.** 창을 닫거나 `Ctrl+C`를 누르면 앱이 종료됩니다. 다음에 사용할 때도 같은 시작 파일을 실행하면 됩니다. 조사·노트·보고서는 이 폴더의 `projects/`에 저장되므로, 저장된 작업까지 옮기려면 이 폴더도 함께 보관하세요.
+
+<details>
+<summary><b>이미 uv와 터미널에 익숙한 경우</b></summary>
+
+저장소 폴더에서 다음 명령으로도 실행할 수 있습니다.
 
 ```sh
 uv sync --frozen
 uv run --frozen streamlit run app.py --server.address 127.0.0.1
 ```
 
-브라우저가 열리지 않으면 `http://localhost:8501`을 엽니다. 첫 화면에서 **「조사 질문에서 시작」·「PDF에서 시작」** 또는 「예시 체험 · 내 조사와 별도」의 **「논문 3편 예제 체험」**을 누르면 됩니다. macOS는 `sh start.command`, Windows는 `start.bat`으로도 실행할 수 있습니다.
+</details>
+
+첫 화면에서 **「조사 질문에서 시작」·「PDF에서 시작」**을 고르세요. 예시를 보고 싶을 때만 「예시 체험 · 내 조사와 별도」를 펼칩니다. 소개 영상이나 예시 실행은 필수가 아닙니다.
 
 <details>
 <summary><b>설치가 막힐 때</b></summary>

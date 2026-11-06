@@ -6,6 +6,12 @@ from deep_research.exports import display_value
 FILTERS = ["전체", "미검토", "보류", "채택", "제외", "위치 미확인", "미발견"]
 
 
+def candidate_label(item):
+    """Selectbox labels must distinguish versions, even with identical titles."""
+    identity = item.get("doi") or item.get("url") or item.get("external_id") or ""
+    return " · ".join(str(part) for part in (item["title"], item.get("year"), identity) if part)
+
+
 def filter_evidence(rows, sources, query="", status="전체", field_ids=None):
     sources = {s["id"]: s for s in sources}
     terms = query.casefold().split()

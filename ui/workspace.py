@@ -72,9 +72,9 @@ def question_panel(project, config, compact=False):
 
 def library(project):
     sources = project.catalog()
-    st.subheader("내 문헌")
+    st.header("내 문헌", anchor=False)
     if not sources:
-        ui.empty("아직 등록한 PDF가 없습니다.", "위에서 문헌을 검색해 담거나 「PDF 가져오기」로 시작하세요.")
+        ui.empty("아직 등록한 PDF가 없습니다.", "위의 「PDF·참고문헌 가져오기」에서 파일을 선택하고 「등록」을 누르세요.")
         return
     pending = sum(s["decision"] == "pending" for s in sources)
     st.caption(f"등록 {len(sources)}편 · 포함 {sum(s['decision'] == 'include' for s in sources)}편 · 보류 {pending}편")
