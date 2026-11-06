@@ -70,18 +70,6 @@ uv run --frozen streamlit run app.py --server.address 127.0.0.1
 - 시작 화면에서 대상·분야·영문 검색어·발행연도를 선택으로 적을 수 있고, 후보 초록에는 그 후보를 찾은 검색어를 표시합니다. 정렬의 '피인용 많은 순'은 품질 순위가 아니라는 도움말이 붙습니다.
 - 「조사 설정 → 단계별 보기」는 조사 설계부터 비교·내보내기까지 여섯 단계로 나눈 학습 모드입니다.
 
-## 다른 도구와 다른 점
-
-공식 기능 안내를 기준으로 비교했습니다(2026-10-31). 같은 과제로 정확도·속도를 측정한 평가는 아닙니다. 연구용 AI 도구 벤치마킹은 [비교 기록](docs/BENCHMARK-2026-11-05.md)에 있습니다.
-
-| 흐름 | Deep Research Kit | Elicit | Liner Scholar |
-|---|---|---|---|
-| 중심 작업 | 로컬 PDF의 추출값을 사람이 대조하고 근거 기록으로 남기기 | 질문·선별·구조화된 데이터 추출·보고서 | 논문 탐색·문헌 비교·인용·문헌고찰 초안 |
-| 근거 확인 | 추출값→발췌→PDF 위치, 채택·수정·보류·제외 기록 | 추출표 셀의 원문 발췌, 선별 이유·사용자 판단 수정 | 원출처와 인용을 연결하는 탐색 흐름 |
-| 현재 제약 | 새 추출은 사용자 AI 연결 필요, 텍스트 PDF 중심, 바뀐 부분만 재추출은 미구현 | 기능 범위·사용량은 요금제에 따라 다름 | 기능 범위·사용량은 요금제에 따라 다름 |
-
-Elicit은 보고서 내보내기가 모든 플랜에서 가능하지만 일부 추출표 내보내기에는 유료 조건이 있고, ResearchRabbit은 인용 탐색과 서지 내보내기를 무료로 제공합니다. 이 도구는 **AI 구독 없이 읽고 정리하는 흐름, 로컬 기록, 고를 수 있는 AI 연결, 근거별 사람의 검토**를 함께 제공하는 데 집중합니다. 근거: [Elicit 체계적 문헌고찰](https://support.elicit.com/en/articles/14759154-systematic-reviews-in-elicit), [Elicit Reports](https://elicit.com/solutions/reports), [Liner Scholar](https://liner.com/scholar), [구현 범위](docs/RESEARCH-WORKSPACE-2026-11-05.md).
-
 ## 왜 만들었나
 
 문헌을 모아도 "왜 이 문헌을 읽으려 했는지", "이 메모는 어느 쪽에서 나온 것인지", "AI의 해석을 누가 확인했는지"가 쉽게 흩어집니다. 이 도구는 후보를 고른 이유, 원문 발췌, 사람의 메모와 검토 판단을 프로젝트 폴더에 함께 남깁니다. 수업에서 "AI에게 조사를 맡기되 근거는 사람이 확인한다"를 연습하는 교재로 시작했습니다.
@@ -268,6 +256,6 @@ uv run --frozen pytest -q
 uv run --frozen ruff check .
 ```
 
-[화면 설계 원칙](docs/DESIGN.md) · [재사용 분석](docs/REUSE.md) · [검증 기록](docs/VALIDATION.md) · [라이선스](LICENSE) · [외부 구성요소 고지](THIRD_PARTY_NOTICES.md)
+[화면 설계 원칙](docs/DESIGN.md) · [연구용 AI 도구 벤치마킹](docs/BENCHMARK-2026-11-05.md) · [작업 공간 구현 범위](docs/RESEARCH-WORKSPACE-2026-11-05.md) · [재사용 분석](docs/REUSE.md) · [검증 기록](docs/VALIDATION.md) · [라이선스](LICENSE) · [외부 구성요소 고지](THIRD_PARTY_NOTICES.md)
 
 프로젝트 스킬 형식은 [Claude Code 공식 문서](https://code.claude.com/docs/en/skills), 선택 API 요청 구조는 [공식 Chat Completions API 문서](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)를 기준으로 작성했습니다.
